@@ -1,0 +1,28 @@
+{
+    "name": "@cooperative-finance/admin-web",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc -b && vite build",
+        "lint": "eslint .",
+        "test": "vitest run",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "@vitejs/plugin-react": "^4.3.4",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "react-router-dom": "^7.3.0",
+        "lucide-react": "^0.511.0"
+    },
+    "devDependencies": {
+        "@types/react": "^19.0.10",
+        "@types/react-dom": "^19.0.4",
+        "@types/node": "^22.13.10",
+        "typescript": "^5.8.2",
+        "vite": "^6.2.2",
+        "vitest": "^3.0.8"
+    }
+}
