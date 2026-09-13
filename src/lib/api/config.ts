@@ -1,14 +1,30 @@
 /**
  * API configuration for the admin panel.
  *
- * The backend is mounted at /api/v1 and its CORS policy allows the dev origin
- * (http://localhost:5173), so the panel talks to it directly. The base URL can
- * be overridden at build/dev time with VITE_API_URL.
+ * The backend is mounted at /api/v1. The base URL is taken from the VITE_API_URL
+ * environment variable (see .env.example) so no host is baked into the bundle:
+ *   - configured: VITE_API_URL is used verbatim (trailing slashes trimmed);
+ *   - development, unset: falls back to the local backend — its CORS policy
+ *     allows the dev origin http://localhost:5173;
+ *   - production, unset: falls back to a same-origin path (/api/v1) so the panel
+ *     works behind a reverse proxy without hardcoding a hostname.
  */
-const DEFAULT_API_BASE = 'http://localhost:4000/api/v1';
+const DEV_FALLBACK_API_BASE = 'http://localhost:4000/api/v1';
+const SAME_ORIGIN_API_BASE = '/api/v1';
 
-export const API_BASE: string =
-  (import.meta.env?.VITE_API_URL as string | undefined)?.replace(/\/+$/, '') ?? DEFAULT_API_BASE;
+function stripTrailingSlashes(value: string): string {
+  let result = value.trim();
+  while (result.endsWith('/')) result = result.slice(0, -1);
+  return result;
+}
+
+function resolveApiBase(): string {
+  const configured = import.meta.env?.VITE_API_URL?.trim();
+  if (configured) return stripTrailingSlashes(configured);
+  return import.meta.env?.DEV ? DEV_FALLBACK_API_BASE : SAME_ORIGIN_API_BASE;
+}
+
+export const API_BASE: string = resolveApiBase();
 
 export const API_SOURCE = 'admin_web' as const;
 
