@@ -1,0 +1,17 @@
+# Dependencies / build output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Environment files — never commit real values (only the template is tracked)
+.env
+.env.*
+!.env.example
+
+# Logs / editor / OS
+*.log
+.DS_Store
+.vscode/
+.idea/
