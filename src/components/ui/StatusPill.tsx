@@ -8,6 +8,13 @@ export function StatusPill({ status }: { status: Status }) {
     return <span className={statusClass(status)}><Icon size={13} />{status}</span>;
 }
 
-export function statusClass(status: Status) {
+/**
+ * Builds the pill class for a status label.
+ *
+ * Accepts the fixed workflow `Status` union as well as the free-form labels the
+ * backend authors for service/transaction rows (e.g. "Matured", "Written off"),
+ * so callers can render a consistent pill without narrowing the value first.
+ */
+export function statusClass(status: Status | string) {
     return `status-pill ${status.toLowerCase().replace(/\s+/g, '-')}`;
 }

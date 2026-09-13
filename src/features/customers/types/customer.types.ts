@@ -1,10 +1,15 @@
 export type Status = 'Active' | 'Pending' | 'Completed' | 'Review' | 'Overdue' | 'Inactive' | 'Rejected' | 'Matched';
-export type CustomerType = 'Individual' | 'Business';
-export type CustomerServiceType = 'Deposit' | 'RD' | 'FD' | 'Loan';
-export type CustomerTransactionType = 'Deposit collection' | 'RD installment' | 'Loan repayment' | 'Withdrawal';
+export type CustomerType = 'Individual' | 'Cooperation' | 'Group' | 'SHG' | 'Organisation' | 'Minor' | 'Joint';
+export type CustomerServiceType = 'Savings' | 'Recurring deposit' | 'Fixed deposit' | 'Loan';
+export type CustomerTransactionType = 'Deposit collection' | 'RD installment' | 'Loan repayment' | 'Withdrawal' | 'Penalty';
 
-export type CustomerService = { id: string; type: CustomerServiceType; accountNumber: string; label: string; amount: string; detail: string; status: Status };
-export type CustomerTransaction = { id: string; type: CustomerTransactionType; amount: string; date: string; agent: string; reference: string; status: Status };
+/**
+ * Service and transaction rows carry backend-authored status labels
+ * (e.g. "Active", "Matured", "Completed"), so `status` is a plain string rather
+ * than the fixed workflow-status union used by the customer record itself.
+ */
+export type CustomerService = { id: string; type: CustomerServiceType; accountNumber: string; label: string; amount: string; detail: string; status: string };
+export type CustomerTransaction = { id: string; type: CustomerTransactionType; amount: string; date: string; agent: string; reference: string; status: string };
 
 export type Customer = {
     id: string;
@@ -20,8 +25,6 @@ export type Customer = {
     customerType: CustomerType;
     dateOfBirth: string;
     gender: string;
-    maritalStatus: string;
-    nationality: string;
     occupation: string;
     businessType: string;
     taxIdentifier: string;
