@@ -1,11 +1,23 @@
+import { useEffect, useState } from 'react';
 import { Modal } from '../../../components/overlays/Modal';
 import { StatusPill, statusClass } from '../../../components/ui/StatusPill';
+import { collectionsRepository } from '../../admin/services/operations/collectionsApiRepository';
+import type { VisitView } from '../../../lib/api/types';
+import { formatTimestamp } from '../../admin/services/operations/helpers';
 import type { Customer } from '../types/customer.types';
 
 const initials = (name: string) => name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
 const display = (value: string) => value || 'Not provided';
 
 export function CustomerDetailModal({ customer, onClose, onEdit, onViewStatement }: { customer: Customer; onClose: () => void; onEdit?: () => void; onViewStatement: () => void }) {
+    const [visits, setVisits] = useState<VisitView[]>([]);
+    
+    useEffect(() => {
+        void collectionsRepository.listVisits({ customerId: customer.systemId, limit: 10 }).then((res) => {
+            setVisits(res.items);
+        }).catch(console.error);
+    }, [customer.systemId]);
+
     return <Modal title={customer.name} eyebrow={`CUSTOMER PROFILE / ${customer.id}`} onClose={onClose} wide>
         <p className="customer-modal-intro">Complete identity, KYC, nominee, service and transaction record.</p>
         <div className="customer-profile-summary"><div className="customer-avatar">{initials(customer.name)}</div><div><strong>{customer.id}</strong><span>{customer.phone} · Registered {customer.registrationDate}</span></div><StatusPill status={customer.status} /></div>
@@ -19,6 +31,7 @@ export function CustomerDetailModal({ customer, onClose, onEdit, onViewStatement
         </div>
         <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Active accounts and services</h3><p>Deposit, RD, FD and loan services mapped to this customer.</p></div><span>{customer.services.length} services</span></div>{customer.services.length ? <div className="customer-service-list">{customer.services.map((service) => <div className="customer-service-row" key={service.id}><div><strong>{service.label}</strong><span>{service.accountNumber} · {service.detail}</span></div><div><strong>{service.amount}</strong><span className={statusClass(service.status)}>{service.status}</span></div></div>)}</div> : <div className="empty-state"><strong>No active accounts</strong><span>Account products will appear here after they are linked.</span></div>}</section>
         <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Transaction history</h3><p>Collections, repayments and withdrawal activity for this customer.</p></div><span>{customer.transactions.length} entries</span></div>{customer.transactions.length ? <div className="customer-transaction-list">{customer.transactions.map((transaction) => <div className="customer-transaction-row" key={transaction.id}><div><strong>{transaction.type}</strong><span>{transaction.id} · {transaction.date || 'Date not recorded'} · {display(transaction.agent)}</span></div><div><strong>{transaction.amount}</strong><span>{display(transaction.reference)}</span><span className={statusClass(transaction.status)}>{transaction.status}</span></div></div>)}</div> : <div className="empty-state"><strong>No transactions recorded</strong><span>Financial activity will be retained in this history.</span></div>}</section>
+        <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Visit history</h3><p>Recent doorstep visits by collection agents.</p></div><span>{visits.length} entries</span></div>{visits.length ? <div className="customer-transaction-list">{visits.map((visit) => <div className="customer-transaction-row" key={visit.id}><div><strong>{visit.visitDate}</strong><span>{visit.agentName} · {visit.visitedAt ? formatTimestamp(visit.visitedAt) : 'No time'}</span></div><div><strong>{visit.outcome === 'notAvailable' ? 'Not Available' : visit.outcome}</strong><span>{display(visit.remark || '')}</span><span className={`status-pill ${visit.outcome}`}>{visit.outcome}</span></div></div>)}</div> : <div className="empty-state"><strong>No visits recorded</strong><span>Agents have not recorded any visits for this customer yet.</span></div>}</section>
         <div className="customer-detail-actions"><button className="secondary-button" onClick={onViewStatement}>View statement</button>{onEdit && <button className="primary-button" onClick={onEdit}>Edit customer</button>}</div>
     </Modal>;
 }

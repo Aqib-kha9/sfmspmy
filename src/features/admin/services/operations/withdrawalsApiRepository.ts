@@ -2,6 +2,7 @@ import { apiClient } from '../../../../lib/api/apiClient';
 import type {
     ListWithdrawalsResult,
     RequestWithdrawalInput,
+    RequestWithdrawalResult,
     WithdrawalAccountKind,
     WithdrawalEventType,
     WithdrawalHistoryEventView,
@@ -26,6 +27,7 @@ import { formatDate, querySuffix } from './helpers';
  *  - POST   /:id/pay                -> record payout + debit source ledger
  *  - POST   /:id/confirm            -> terminal confirmation
  *  - POST   /:id/change             -> President-only change (re-enters queue)
+ *  - POST   /:id/cancel             -> cancel a pending/approved request
  *  - GET    /:id/history            -> chronological event trail
  *
  * Gate notes (routes): reads need `withdrawals.read`, writes need
@@ -34,16 +36,31 @@ import { formatDate, querySuffix } from './helpers';
  */
 
 /** Mirrors the AdminPages status union so the wiring step imports from here. */
-export type Status = 'Active' | 'Pending' | 'Approved' | 'Completed' | 'Review' | 'Overdue' | 'Inactive' | 'Rejected' | 'Matched';
+export type Status = 'Active' | 'Pending' | 'Approved' | 'Completed' | 'Review' | 'Overdue' | 'Inactive' | 'Rejected' | 'Cancelled' | 'Reversed' | 'Matched';
 
 export type WithdrawalEvent = {
     id: string;
-    type: 'Requested' | 'Approved' | 'Rejected' | 'Marked for review' | 'Settled';
+    type: 'Requested' | 'Approved' | 'Rejected' | 'Marked for review' | 'Settled' | 'Cancelled' | 'Reversed';
     date: string;
     performedBy: string;
     reference: string;
     note: string;
 };
+
+/**
+ * Generates a 32-character lowercase hexadecimal idempotency key (the shared
+ * sync-protocol contract). Sent as the Idempotency-Key header so a retried
+ * create can never double-book a withdrawal.
+ */
+export function newIdempotencyKey(): string {
+    const bytes = new Uint8Array(16);
+    if (typeof globalThis.crypto?.getRandomValues === 'function') {
+        globalThis.crypto.getRandomValues(bytes);
+    } else {
+        for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+    }
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 export type WithdrawalRecord = {
     /** Backend uuid used for approve / reject / pay / confirm / change calls. */
@@ -80,6 +97,15 @@ export type WithdrawalRecord = {
     settlementOperator?: string;
     reference: string;
     note: string;
+    /** Populated only when the request was cancelled before payout. */
+    cancelledBy?: string;
+    cancellationDate?: string;
+    cancellationReason?: string;
+    /** Populated only when a settled payout was recalled (M.D. reversal). */
+    reversedBy?: string;
+    reversalDate?: string;
+    reversalReason?: string;
+    reversalReference?: string;
     events: WithdrawalEvent[];
 };
 
@@ -107,6 +133,12 @@ export type WithdrawalInput = {
     deviceReference?: string;
     location?: string;
     offlineSyncReference?: string;
+    /**
+     * Client-generated idempotency key (32-char lowercase hex). Generated once
+     * per form instance so a retry after a network failure reuses the same key
+     * and the backend replays the original request instead of creating a second.
+     */
+    idempotencyKey?: string;
 };
 
 export type WithdrawalQuery = {
@@ -128,6 +160,10 @@ export interface WithdrawalRepository {
     pay(id: string, input: { payoutReference?: string }): Promise<WithdrawalRecord>;
     confirm(id: string): Promise<WithdrawalRecord>;
     change(id: string, input: { amount: number; reason: string }): Promise<WithdrawalRecord>;
+    /** Cancels a pending or approved request before payout (reason is mandatory). */
+    cancel(id: string, reason: string): Promise<WithdrawalRecord>;
+    /** Recalls a paid/confirmed payout, re-crediting the source account (M.D. only). */
+    reverse(id: string, reason: string): Promise<WithdrawalRecord>;
     history(id: string): Promise<WithdrawalEvent[]>;
 }
 
@@ -138,7 +174,8 @@ const STATUS_FROM_API: Record<WithdrawalStatus, Status> = {
     rejected: 'Rejected',
     paid: 'Completed',
     confirmed: 'Completed',
-    cancelled: 'Rejected',
+    cancelled: 'Cancelled',
+    reversed: 'Reversed',
 };
 
 /** Display statuses that map cleanly onto a backend filter value. */
@@ -151,6 +188,8 @@ const STATUS_TO_API: Record<Status, WithdrawalStatus | undefined> = {
     Overdue: undefined,
     Inactive: undefined,
     Rejected: 'rejected',
+    Cancelled: 'cancelled',
+    Reversed: 'reversed',
     Matched: undefined,
 };
 
@@ -182,7 +221,8 @@ const EVENT_FROM_API: Record<WithdrawalEventType, WithdrawalEvent['type']> = {
     paid: 'Settled',
     confirmed: 'Settled',
     changed: 'Requested', // President change re-enters the queue
-    cancelled: 'Rejected',
+    cancelled: 'Cancelled',
+    reversed: 'Reversed',
 };
 
 /** Human-readable note from the free-form event payload. */
@@ -190,6 +230,10 @@ function eventNote(data: Record<string, unknown> | null): string {
     if (!data) return '';
     const comment = data.comment;
     if (typeof comment === 'string' && comment.trim()) return comment;
+    const cancellationReason = data.cancellationReason;
+    if (typeof cancellationReason === 'string' && cancellationReason.trim()) return cancellationReason;
+    const reversalReason = data.reversalReason;
+    if (typeof reversalReason === 'string' && reversalReason.trim()) return reversalReason;
     const reason = data.reason;
     if (typeof reason === 'string' && reason.trim()) return reason;
     const payout = data.payoutReference;
@@ -293,6 +337,16 @@ function toRecord(view: WithdrawalView, events: WithdrawalEvent[] = []): Withdra
         note: view.freeTextReason && view.freeTextReason.includes(view.reason)
             ? view.freeTextReason
             : view.reason + (view.freeTextReason ? ` — ${view.freeTextReason}` : ''),
+        // Cancellation evidence is only present when a request was withdrawn
+        // before payout; the columns come straight off withdrawal_request.
+        cancelledBy: view.cancelledByName ?? undefined,
+        cancellationDate: view.cancelledOn ? formatDate(view.cancelledOn) : undefined,
+        cancellationReason: view.cancellationReason ?? undefined,
+        // Reversal evidence is only present when a settled payout was recalled.
+        reversedBy: view.reversedByName ?? undefined,
+        reversalDate: view.reversedOn ? formatDate(view.reversedOn) : undefined,
+        reversalReason: view.reversalReason ?? undefined,
+        reversalReference: view.reversalTransactionId ?? undefined,
         events,
     };
 }
@@ -365,11 +419,20 @@ export class ApiWithdrawalRepository implements WithdrawalRepository {
             freeTextReason: input.note.trim() || undefined,
             ...(Object.keys(documents).length > 0 ? { documents } : {}),
         };
-        const view = await apiClient.request<WithdrawalView>('/withdrawals', {
+        // A stable key per submission attempt: reuse a caller-supplied key when
+        // present (so the page can hold one key across retries) or mint a fresh
+        // one. The header contract is 32-char lowercase hex — see the shared
+        // sync idempotency schema.
+        const idempotencyKey = input.idempotencyKey ?? newIdempotencyKey();
+        // The route answers 201 when the request is first created and 200 when an
+        // existing key is replayed, so the create() result carries the server's
+        // canonical record either way (never a second booking).
+        const result = await apiClient.request<RequestWithdrawalResult>('/withdrawals', {
             method: 'POST',
+            headers: { 'Idempotency-Key': idempotencyKey },
             body: payload,
         });
-        return toRecord(view);
+        return toRecord(result.withdrawal);
     }
 
     async approve(id: string, comment?: string): Promise<WithdrawalRecord> {
@@ -382,6 +445,22 @@ export class ApiWithdrawalRepository implements WithdrawalRepository {
 
     async reject(id: string, reason: string): Promise<WithdrawalRecord> {
         const view = await apiClient.request<WithdrawalView>(`/withdrawals/${id}/reject`, {
+            method: 'POST',
+            body: { reason },
+        });
+        return toRecord(view);
+    }
+
+    async cancel(id: string, reason: string): Promise<WithdrawalRecord> {
+        const view = await apiClient.request<WithdrawalView>(`/withdrawals/${id}/cancel`, {
+            method: 'POST',
+            body: { reason },
+        });
+        return toRecord(view);
+    }
+
+    async reverse(id: string, reason: string): Promise<WithdrawalRecord> {
+        const view = await apiClient.request<WithdrawalView>(`/withdrawals/${id}/reverse`, {
             method: 'POST',
             body: { reason },
         });

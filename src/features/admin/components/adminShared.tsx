@@ -3,7 +3,7 @@
 import { type ReactNode } from 'react';
 import { type LucideIcon } from 'lucide-react';
 
-export type Status = 'Active' | 'Pending' | 'Approved' | 'Completed' | 'Review' | 'Overdue' | 'Inactive' | 'Rejected' | 'Matched';
+export type Status = 'Active' | 'Pending' | 'Approved' | 'Completed' | 'Review' | 'Overdue' | 'Inactive' | 'Rejected' | 'Cancelled' | 'Reversed' | 'Matched';
 
 export type Row = {
     id: string;
@@ -23,6 +23,8 @@ export const statusClass: Record<Status, string> = {
     Overdue: 'status-pill overdue',
     Inactive: 'status-pill inactive',
     Rejected: 'status-pill rejected',
+    Cancelled: 'status-pill cancelled',
+    Reversed: 'status-pill reversed',
     Matched: 'status-pill matched',
 };
 

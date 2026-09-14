@@ -10,6 +10,7 @@ import {
     KeyRound,
     LayoutDashboard,
     LogOut,
+    MapPin,
     Menu,
     Search,
     Settings,
@@ -40,6 +41,7 @@ const navigation: NavItem[] = [
     { label: 'Loans', icon: CircleDollarSign, path: '/loans', permission: 'loans.read' },
     { label: 'Withdrawals', icon: ArrowUpRight, path: '/withdrawals', permission: 'withdrawals.read' },
     { label: 'Collections', icon: ArrowDownToLine, path: '/collections', permission: 'collections.read' },
+    { label: 'Visits', icon: MapPin, path: '/visits', permission: 'collections.read' },
     { label: 'Reports', icon: BarChart3, path: '/reports', permission: 'reports.read' },
 ];
 

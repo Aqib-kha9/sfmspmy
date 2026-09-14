@@ -186,7 +186,7 @@ export function CustomersPage() {
         {modal === 'add' && <CustomerFormModal onClose={close} onSave={save} />}
         {modal === 'edit' && canWrite && selected && <CustomerFormModal customer={selected} onClose={close} onSave={save} />}
         {modal === 'detail' && selected && <CustomerDetailModal customer={selected} onClose={close} onEdit={() => setModal('edit')} onViewStatement={() => setModal('statement')} />}
-        {modal === 'statement' && selected && <CustomerStatementModal customerId={selected.id} customerName={selected.name} onClose={() => setModal('detail')} loadStatement={statement} />}
+        {modal === 'statement' && selected && <CustomerStatementModal customerId={selected.systemId} customerName={selected.name} onClose={() => setModal('detail')} loadStatement={statement} />}
         <Toast message={message} />
     </div>;
 }

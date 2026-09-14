@@ -68,6 +68,12 @@ export type SecuritySession = {
     location: string;
     lastActive: string;
     status: 'Active' | 'Inactive';
+    /**
+     * True while the device registry entry is `pending` — the agent's first
+     * sign-in from a new fingerprint. The Managing Director must confirm it
+     * before the agent can authenticate (backend `AUTH_DEVICE_PENDING`).
+     */
+    pending?: boolean;
     ipAddress?: string;
     userAgent?: string;
     deviceReference?: string;
@@ -103,6 +109,11 @@ export interface SecurityRepository {
     listSessions(): Promise<SecuritySession[]>;
     listAuditEvents(query?: SecurityAuditQuery): Promise<SecurityAuditEvent[]>;
     revokeSession(deviceId: string): Promise<void>;
+    /**
+     * Approves a pending device so its agent can sign in
+     * (`POST /auth/devices/:id/confirm`, Managing Director only).
+     */
+    confirmDevice(deviceId: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +287,7 @@ export class ApiSecurityRepository implements SecurityRepository {
             location: device.status === 'pending' ? 'Awaiting confirmation' : 'Registered device',
             lastActive: formatTimestamp(device.lastUsedAt ?? device.createdAt),
             status: device.status === 'disabled' ? 'Inactive' : 'Active',
+            pending: device.status === 'pending',
             deviceReference: device.id,
             userAgent: device.appVersion ? `App ${device.appVersion}` : undefined,
         }));
@@ -305,6 +317,12 @@ export class ApiSecurityRepository implements SecurityRepository {
         await apiClient.request(`/auth/devices/${deviceId}`, {
             method: 'DELETE',
             body: { reason: 'Revoked from the Security Center' },
+        });
+    }
+
+    async confirmDevice(deviceId: string): Promise<void> {
+        await apiClient.request(`/auth/devices/${deviceId}/confirm`, {
+            method: 'POST',
         });
     }
 }

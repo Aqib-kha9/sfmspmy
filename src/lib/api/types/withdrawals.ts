@@ -17,7 +17,8 @@ export type WithdrawalStatus =
     | 'rejected'
     | 'paid'
     | 'confirmed'
-    | 'cancelled';
+    | 'cancelled'
+    | 'reversed';
 
 export type WithdrawalEventType =
     | 'requested'
@@ -26,7 +27,8 @@ export type WithdrawalEventType =
     | 'paid'
     | 'confirmed'
     | 'changed'
-    | 'cancelled';
+    | 'cancelled'
+    | 'reversed';
 
 export interface WithdrawalIdentityVerification {
     passbook: boolean;
@@ -69,6 +71,19 @@ export interface WithdrawalView {
     confirmedBy: string | null;
     confirmedByName: string | null;
     confirmedOn: string | null;
+    /** Cancellation metadata — populated only when status = 'cancelled'. */
+    cancelledBy: string | null;
+    cancelledByName: string | null;
+    cancelledOn: string | null;
+    cancellationReason: string | null;
+    /** Reversal metadata — populated only when a paid payout was recalled. */
+    reversedBy: string | null;
+    reversedByName: string | null;
+    reversedOn: string | null;
+    reversalReason: string | null;
+    reversalTransactionId: string | null;
+    /** Client-supplied idempotency key that produced this request (null for legacy rows). */
+    idempotencyKey: string | null;
     /** Free-form operator worksheet captured with the request. */
     documents: Record<string, unknown> | null;
     createdAt: string;
@@ -118,6 +133,16 @@ export type ListWithdrawalsResult = {
     total: number;
 };
 
+/**
+ * Result of POST /withdrawals. `created` is false when the request was replayed
+ * from a previously committed Idempotency-Key (HTTP 200) rather than created
+ * anew (HTTP 201) — the UI uses this to avoid a misleading "created" toast.
+ */
+export type RequestWithdrawalResult = {
+    created: boolean;
+    withdrawal: WithdrawalView;
+};
+
 export type ApproveWithdrawalInput = { comment?: string };
 export type RejectWithdrawalInput = { reason: string };
 export type PayWithdrawalInput = {
@@ -130,3 +155,5 @@ export type ChangeWithdrawalInput = {
     reason: string;
     freeTextReason?: string;
 };
+export type CancelWithdrawalInput = { reason: string };
+export type ReverseWithdrawalInput = { reason: string };

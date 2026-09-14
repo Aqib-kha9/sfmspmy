@@ -13,6 +13,7 @@ export type CustomerTransaction = { id: string; type: CustomerTransactionType; a
 
 export type Customer = {
     id: string;
+    systemId: string;
     name: string;
     phone: string;
     email: string;

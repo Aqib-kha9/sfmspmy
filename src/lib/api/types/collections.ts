@@ -102,6 +102,21 @@ export interface ListCollectionsResult {
     total: number;
 }
 
+export type ListVisitsQuery = {
+    agentId?: string;
+    customerId?: string;
+    outcome?: VisitOutcome;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+    offset?: number;
+};
+
+export interface ListVisitsResult {
+    items: VisitView[];
+    total: number;
+}
+
 export interface ReversalView {
     original: CollectionView;
     reversalId: string;

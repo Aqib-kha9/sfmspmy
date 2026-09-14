@@ -12,6 +12,7 @@ import { LoansPage } from './pages/LoansPage';
 import { WithdrawalsPage } from './pages/WithdrawalsPage';
 import { ScopedAgentsPage } from './pages/AgentsPage';
 import { StaffPage } from './pages/StaffPage';
+import { VisitsPage } from './pages/VisitsPage';
 
 export function AdminPage({ path }: { path: string }) {
     if (path === '/collections') return <ScopedCollectionsPage />;
@@ -27,5 +28,6 @@ export function AdminPage({ path }: { path: string }) {
     if (path === '/withdrawals') return <WithdrawalsPage />;
     if (path === '/agents') return <ScopedAgentsPage />;
     if (path === '/staff') return <StaffPage />;
+    if (path === '/visits') return <VisitsPage />;
     return null;
 }

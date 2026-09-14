@@ -41,7 +41,7 @@ import { formatDate, formatTimestamp, messageFor, querySuffix } from './helpers'
  */
 
 /** Mirrors the AdminPages status union so the wiring step imports from here. */
-export type Status = 'Active' | 'Pending' | 'Approved' | 'Completed' | 'Review' | 'Overdue' | 'Inactive' | 'Rejected' | 'Matched';
+export type Status = 'Active' | 'Pending' | 'Approved' | 'Completed' | 'Review' | 'Overdue' | 'Inactive' | 'Rejected' | 'Cancelled' | 'Reversed' | 'Matched';
 
 export type AgentEvent = {
     id: string;

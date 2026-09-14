@@ -11,6 +11,8 @@ import type {
     UpdateCustomerInput,
 } from '../../../lib/api/types';
 import { getStoredProfile } from '../../auth/auth.service';
+import { agentsRepository } from '../../admin/services/operations/agentsApiRepository';
+import { settingsRepository } from '../../admin/services/operations/settingsApiRepository';
 import type { Customer, CustomerInput, CustomerService, CustomerTransaction, Status } from '../types/customer.types';
 import type {
     CustomerOption,
@@ -155,13 +157,15 @@ function toTransactions(detail: CustomerDetailView): CustomerTransaction[] {
 function toCustomer(view: CustomerView, detail?: CustomerDetailView): Customer {
     const current = detail?.addresses.find((address) => address.addressType === 'current') ?? detail?.addresses[0];
     const permanent = detail?.addresses.find((address) => address.addressType === 'permanent');
-    const document = detail?.identityDocuments[0];
+    const panDocument = detail?.identityDocuments.find((d) => d.documentType === 'pan');
+    const document = detail?.identityDocuments.find((d) => d.documentType !== 'pan') ?? detail?.identityDocuments[0];
     const nominee = detail?.nominee ?? null;
     const kyc = detail?.kyc ?? null;
     const consentCaptured = detail?.consents.some((consent) => consent.granted) ?? false;
 
     return {
         id: view.customerNumber ?? view.id,
+        systemId: view.id,
         name: view.fullName,
         phone: view.mobile,
         email: text(view.email),
@@ -176,9 +180,9 @@ function toCustomer(view: CustomerView, detail?: CustomerDetailView): Customer {
         gender: text(view.gender),
         occupation: text(view.occupation),
         businessType: text(view.businessType),
-        taxIdentifier: document?.documentType === 'pan' ? document.documentNumber : '',
-        identityType: document ? DOCUMENT_TYPE_FROM_API[document.documentType] ?? document.documentType : '',
-        identityReference: document?.documentNumber ?? '',
+        taxIdentifier: panDocument ? panDocument.documentNumber : '',
+        identityType: document && document.documentType !== 'pan' ? DOCUMENT_TYPE_FROM_API[document.documentType] ?? document.documentType : 'Aadhaar',
+        identityReference: document && document.documentType !== 'pan' ? document.documentNumber : '',
         kycMethod: text(kyc?.method ?? view.kycMethod),
         kycVerifiedOn: kyc?.verifiedOn ? kyc.verifiedOn.slice(0, 10) : '',
         amlRiskCategory: text(view.amlRisk ?? view.riskCategory),
@@ -215,12 +219,25 @@ function toCreatePayload(input: CustomerInput, branchId: string): CreateCustomer
     }
 
     const documentType = DOCUMENT_TYPE_TO_API[input.identityType];
+    const identityDocuments = [];
+    if (documentType && input.identityReference.trim()) {
+        identityDocuments.push({ documentType, documentNumber: normalizeDocumentNumber(input.identityReference) });
+    }
+    if (input.taxIdentifier.trim()) {
+        const pan = normalizeDocumentNumber(input.taxIdentifier);
+        if (!(documentType === 'pan' && normalizeDocumentNumber(input.identityReference) === pan)) {
+            identityDocuments.push({ documentType: 'pan' as const, documentNumber: pan });
+        }
+    }
     const payload: CreateCustomerInput = {
         fullName: input.name.trim(),
         mobile: input.phone.trim(),
         branchId,
         addresses,
     };
+    if (identityDocuments.length > 0) {
+        payload.identityDocuments = identityDocuments;
+    }
     if (input.customerType) payload.customerType = input.customerType;
     if (input.email.trim()) payload.email = input.email.trim();
     if (input.alternatePhone.trim()) payload.alternatePhone = input.alternatePhone.trim();
@@ -233,9 +250,6 @@ function toCreatePayload(input: CustomerInput, branchId: string): CreateCustomer
     if (input.guardianName.trim()) payload.guardianName = input.guardianName.trim();
     if (input.guardianPhone.trim()) payload.guardianPhone = input.guardianPhone.trim();
     if (input.kycMethod.trim()) payload.kycMethod = input.kycMethod.trim();
-    if (documentType && input.identityReference.trim()) {
-        payload.identityDocuments = [{ documentType, documentNumber: normalizeDocumentNumber(input.identityReference) }];
-    }
     return payload;
 }
 
@@ -260,13 +274,28 @@ function toUpdatePayload(input: CustomerInput): UpdateCustomerInput {
     // the active-customer uniqueness rule on edit (it excludes this customer's
     // own row, so resubmitting the unchanged document is always accepted).
     const documentType = DOCUMENT_TYPE_TO_API[input.identityType];
+    const identityDocuments = [];
     if (documentType && input.identityReference.trim()) {
-        payload.identityDocuments = [{ documentType, documentNumber: normalizeDocumentNumber(input.identityReference) }];
+        identityDocuments.push({ documentType, documentNumber: normalizeDocumentNumber(input.identityReference) });
     }
+    if (input.taxIdentifier.trim()) {
+        const pan = normalizeDocumentNumber(input.taxIdentifier);
+        if (!(documentType === 'pan' && normalizeDocumentNumber(input.identityReference) === pan)) {
+            identityDocuments.push({ documentType: 'pan' as const, documentNumber: pan });
+        }
+    }
+    if (identityDocuments.length > 0) {
+        payload.identityDocuments = identityDocuments;
+    }
+    const addresses = [];
     if (input.address.trim()) {
-        // Omit optional sub-fields (vs. sending null) so the backend's
-        // `.optional()` address schema validates.
-        payload.addresses = [{ addressType: 'current', line1: input.address.trim() }];
+        addresses.push({ addressType: 'current' as const, line1: input.address.trim() });
+    }
+    if (input.permanentAddress.trim()) {
+        addresses.push({ addressType: 'permanent' as const, line1: input.permanentAddress.trim() });
+    }
+    if (addresses.length > 0) {
+        payload.addresses = addresses;
     }
     return payload;
 }
@@ -449,13 +478,39 @@ export class ApiCustomerRepository implements CustomerRepository {
                             sharePercentage: 100,
                         },
                     });
-                    const refreshed = await apiClient.request<CustomerDetailView>(`/customers/${created.id}`);
-                    return toCustomer(refreshed, refreshed);
                 } catch {
-                    return toCustomer(created, created);
+                    // fallthrough
                 }
             }
-            return toCustomer(created, created);
+            if (input.consentCaptured) {
+                try {
+                    await apiClient.request(`/customers/${created.id}/consents`, {
+                        method: 'POST',
+                        body: {
+                            consents: [
+                                { channel: 'sms', granted: true },
+                                { channel: 'whatsapp', granted: true },
+                                { channel: 'phone', granted: true }
+                            ]
+                        },
+                    });
+                } catch {
+                    // fallthrough
+                }
+            }
+            if (input.assignedAgent && input.assignedAgent !== 'Unassigned') {
+                try {
+                    const agents = await agentsRepository.list();
+                    const agent = agents.find((a) => a.name === input.assignedAgent);
+                    if (agent) {
+                        await agentsRepository.assignCustomers(agent.id, [created.id]);
+                    }
+                } catch {
+                    // best-effort
+                }
+            }
+            const finalRefresh = await apiClient.request<CustomerDetailView>(`/customers/${created.id}`);
+            return toCustomer(finalRefresh, finalRefresh);
         } catch (error) {
             throw new Error(messageFor(error, 'Unable to register the customer.'));
         }
@@ -507,7 +562,62 @@ export class ApiCustomerRepository implements CustomerRepository {
                     /* Nominee update is best-effort; profile update already succeeded. */
                 }
             }
-            return toCustomer(updated, updated);
+            if (input.status) {
+                const apiStatus = STATUS_TO_API[input.status];
+                if (apiStatus && apiStatus !== updated.status) {
+                    try {
+                        await apiClient.request(`/customers/${customerId}/status`, {
+                            method: 'POST',
+                            body: { status: apiStatus, reason: 'Updated via admin panel profile edit' }
+                        });
+                    } catch {
+                        // best-effort, might require M.D. role
+                    }
+                }
+            }
+            if (input.branch) {
+                try {
+                    const branches = await settingsRepository.branches();
+                    const branch = branches.find((b) => b.name === input.branch);
+                    if (branch && branch.id !== updated.branchId) {
+                        await apiClient.request(`/customers/${customerId}/transfer`, {
+                            method: 'POST',
+                            body: { toBranchId: branch.id, reason: 'Branch reassigned via admin panel' }
+                        });
+                    }
+                } catch {
+                    // best-effort
+                }
+            }
+            if (input.consentCaptured) {
+                try {
+                    await apiClient.request(`/customers/${customerId}/consents`, {
+                        method: 'POST',
+                        body: {
+                            consents: [
+                                { channel: 'sms', granted: true },
+                                { channel: 'whatsapp', granted: true },
+                                { channel: 'phone', granted: true }
+                            ]
+                        },
+                    });
+                } catch {
+                    // fallthrough
+                }
+            }
+            if (input.assignedAgent && input.assignedAgent !== 'Unassigned') {
+                try {
+                    const agents = await agentsRepository.list();
+                    const agent = agents.find((a) => a.name === input.assignedAgent);
+                    if (agent) {
+                        await agentsRepository.assignCustomers(agent.id, [customerId]);
+                    }
+                } catch {
+                    // best-effort
+                }
+            }
+            const finalRefresh = await apiClient.request<CustomerDetailView>(`/customers/${customerId}`);
+            return toCustomer(finalRefresh, finalRefresh);
         } catch (error) {
             throw new Error(messageFor(error, 'Unable to update the customer.'));
         }

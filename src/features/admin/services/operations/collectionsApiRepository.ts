@@ -10,6 +10,8 @@ import type {
     EmergencyApprovalInput,
     ListCollectionsResult,
     ReversalView,
+    ListVisitsQuery,
+    ListVisitsResult,
     ReviewCollectionInput,
     ReverseCollectionInput,
 } from '../../../../lib/api/types';
@@ -254,6 +256,21 @@ export class ApiCollectionsRepository implements CollectionsRepository {
         if (query.dateTo) params.dateTo = query.dateTo;
         return apiClient.request<CollectionTotalsView>(
             `/collections/reports/collection-totals${querySuffix(params)}`,
+        );
+    }
+
+    async listVisits(query: ListVisitsQuery = {}): Promise<ListVisitsResult> {
+        const params: Record<string, string | undefined> = {};
+        if (query.agentId) params.agentId = query.agentId;
+        if (query.customerId) params.customerId = query.customerId;
+        if (query.outcome) params.outcome = query.outcome;
+        if (query.dateFrom) params.dateFrom = query.dateFrom;
+        if (query.dateTo) params.dateTo = query.dateTo;
+        if (query.limit !== undefined) params.limit = query.limit.toString();
+        if (query.offset !== undefined) params.offset = query.offset.toString();
+        
+        return apiClient.request<ListVisitsResult>(
+            `/collections/visits${querySuffix(params)}`,
         );
     }
 
