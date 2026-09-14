@@ -96,6 +96,7 @@ export type CollectionsQuery = {
 export interface CollectionsRepository {
     list(query?: CollectionsQuery): Promise<CollectionRecord[]>;
     totals(query?: CollectionsQuery): Promise<CollectionTotalsView>;
+    listVisits(query?: ListVisitsQuery): Promise<ListVisitsResult>;
     review(id: string, input: ReviewCollectionInput): Promise<CollectionRecord>;
     reverse(id: string, input: ReverseCollectionInput): Promise<CollectionRecord>;
     deleteDuplicate(id: string, input: DeleteDuplicateInput): Promise<CollectionRecord>;

@@ -50,4 +50,4 @@ export type Customer = {
     transactions: CustomerTransaction[];
 };
 
-export type CustomerInput = Omit<Customer, 'id' | 'value' | 'accountSummary' | 'services' | 'transactions'>;
+export type CustomerInput = Omit<Customer, 'id' | 'systemId' | 'value' | 'accountSummary' | 'services' | 'transactions'>;
