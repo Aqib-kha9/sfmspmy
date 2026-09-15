@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Permission } from '../../lib/permissions/permissions';
+import { isSuperAdmin, type Permission } from '../../lib/permissions/permissions';
 import type { StaffProfile } from '../../lib/api/types';
 import { setUnauthorizedHandler, tokenStore } from '../../lib/api/apiClient';
 import {
@@ -82,12 +82,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const can = useCallback(
-        (permission: Permission) => profile?.permissions.includes(permission) ?? false,
+        (permission: Permission) => {
+            if (!profile) return false;
+            if (isSuperAdmin(profile.role)) return true;
+            return profile.permissions.includes(permission);
+        },
         [profile]
     );
 
     const hasRole = useCallback(
-        (...roles: StaffProfile['role'][]) => (profile ? roles.includes(profile.role) : false),
+        (...roles: StaffProfile['role'][]) => {
+            if (!profile) return false;
+            if (isSuperAdmin(profile.role)) return true;
+            return roles.includes(profile.role);
+        },
         [profile]
     );
 

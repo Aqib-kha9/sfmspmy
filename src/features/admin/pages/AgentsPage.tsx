@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { CalendarDays, CheckCircle2, ChevronRight, Download, Filter, Loader2, Search, ShieldCheck, SlidersHorizontal, UserPlus } from 'lucide-react';
 import { customerRepository } from '../../customers/services/customerApiRepository';
 import { agentsRepository } from '../services/operations/agentsApiRepository';
+import { staffRepository, type StaffRecord } from '../services/operations/staffApiRepository';
 import { messageFor } from '../services/operations/helpers';
 import { type Status, StatusPill, SummaryStrip } from '../components/adminShared';
 import { type CustomerRecord, toCustomerRecord } from './CustomersPage';
@@ -56,7 +57,23 @@ export type AgentRecord = {
 export type AgentInput = Omit<AgentRecord, 'id' | 'todayCollected' | 'pendingAmount' | 'transactionCount' | 'syncStatus' | 'lastSync' | 'events'>;
 
 export function AgentModal({ mode, record, onClose, onSave }: { mode: 'add' | 'edit'; record?: AgentRecord; onClose: () => void; onSave: (input: AgentInput) => Promise<void> }) {
-    const [name, setName] = useState(record?.name ?? ''); const [phone, setPhone] = useState(record?.phone ?? ''); const [email, setEmail] = useState(record?.email ?? ''); const [employeeCode, setEmployeeCode] = useState(record?.employeeCode ?? ''); const [role, setRole] = useState<AgentRecord['role']>(record?.role ?? 'Collection Agent'); const [status, setStatus] = useState<Status>(record?.status ?? 'Active'); const [accessStatus, setAccessStatus] = useState<AgentRecord['accessStatus']>(record?.accessStatus ?? 'Enabled'); const [route, setRoute] = useState(record?.route ?? ''); const [joinedOn, setJoinedOn] = useState(record?.joinedOn ?? ''); const [assignedCustomerIds, setAssignedCustomerIds] = useState(record?.assignedCustomerIds ?? []); const [branch, setBranch] = useState(record?.branch ?? ''); const [supervisor, setSupervisor] = useState(record?.supervisor ?? ''); const [identityReference, setIdentityReference] = useState(record?.identityReference ?? ''); const [employmentDocumentReferences, setEmploymentDocumentReferences] = useState(record?.employmentDocumentReferences ?? ''); const [emergencyContact, setEmergencyContact] = useState(record?.emergencyContact ?? ''); const [registeredDevice, setRegisteredDevice] = useState(record?.registeredDevice ?? ''); const [appVersion, setAppVersion] = useState(record?.appVersion ?? ''); const [lastKnownLocation, setLastKnownLocation] = useState(record?.lastKnownLocation ?? ''); const [routeEffectiveFrom, setRouteEffectiveFrom] = useState(record?.routeEffectiveFrom ?? ''); const [routeEffectiveTo, setRouteEffectiveTo] = useState(record?.routeEffectiveTo ?? ''); const [assignmentEffectiveFrom, setAssignmentEffectiveFrom] = useState(record?.assignmentEffectiveFrom ?? ''); const [assignmentEffectiveTo, setAssignmentEffectiveTo] = useState(record?.assignmentEffectiveTo ?? ''); const [collectionLimit, setCollectionLimit] = useState(record?.collectionLimit ?? ''); const [cashHoldingLimit, setCashHoldingLimit] = useState(record?.cashHoldingLimit ?? ''); const [invitationReference, setInvitationReference] = useState(record?.invitationReference ?? ''); const [mfaPinStatus, setMfaPinStatus] = useState(record?.mfaPinStatus ?? ''); const [deactivationReason, setDeactivationReason] = useState(record?.deactivationReason ?? ''); const [error, setError] = useState('');
+    const [name, setName] = useState(record?.name ?? '');
+    const [phone, setPhone] = useState(record?.phone ?? '');
+    const [email, setEmail] = useState(record?.email ?? '');
+    const [employeeCode, setEmployeeCode] = useState(record?.employeeCode ?? '');
+    const [role, setRole] = useState<AgentRecord['role']>(record?.role ?? 'Collection Agent');
+    const [status, setStatus] = useState<Status>(record?.status ?? 'Active');
+    const [accessStatus, setAccessStatus] = useState<AgentRecord['accessStatus']>(record?.accessStatus ?? 'Enabled');
+    const [route, setRoute] = useState(record?.route ?? '');
+    const [joinedOn, setJoinedOn] = useState(record?.joinedOn ?? '');
+    const [assignedCustomerIds, setAssignedCustomerIds] = useState(record?.assignedCustomerIds ?? []);
+    const [branch, setBranch] = useState(record?.branch ?? '');
+    const [collectionLimit, setCollectionLimit] = useState(record?.collectionLimit ?? '');
+    const [identityReference, setIdentityReference] = useState(record?.identityReference ?? '');
+    const [employmentDocumentReferences, setEmploymentDocumentReferences] = useState(record?.employmentDocumentReferences ?? '');
+    const [error, setError] = useState('');
+    const [lookupLoading, setLookupLoading] = useState(false);
+
     const [availableCustomers, setAvailableCustomers] = useState<CustomerRecord[]>([]);
     useEffect(() => {
         let active = true;
@@ -66,15 +83,88 @@ export function AgentModal({ mode, record, onClose, onSave }: { mode: 'add' | 'e
         return () => { active = false; };
     }, []);
     const toggleCustomer = (id: string) => setAssignedCustomerIds((current) => current.includes(id) ? current.filter((customerId) => customerId !== id) : [...current, id]);
+
+    const [availableStaff, setAvailableStaff] = useState<StaffRecord[]>([]);
+    const [staffLoading, setStaffLoading] = useState(mode === 'add');
+    useEffect(() => {
+        let active = true;
+        if (mode === 'add') {
+            staffRepository.list()
+                .then((records) => {
+                    if (active) {
+                        const agentStaff = records.filter(s => s.roleCode === 'collection_agent');
+                        setAvailableStaff(agentStaff);
+                        setStaffLoading(false);
+                    }
+                })
+                .catch(() => {
+                    if (active) setStaffLoading(false);
+                });
+        }
+        return () => { active = false; };
+    }, [mode]);
+
+    const handleStaffSelect = (code: string) => {
+        setEmployeeCode(code);
+        const match = availableStaff.find(s => s.staffCode === code);
+        if (match) {
+            setName(match.fullName);
+            if (match.phone) setPhone(match.phone);
+            if (match.email) setEmail(match.email);
+            if (match.branchName) setBranch(match.branchName);
+            if (match.createdAt) setJoinedOn(match.createdAt.substring(0, 10));
+            setError('');
+        }
+    };
+
     const [saving, setSaving] = useState(false);
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         if (saving) return;
         setSaving(true);
         try {
-            event.preventDefault(); if (!name.trim() || !phone.trim() || !email.trim() || !employeeCode.trim() || !route.trim() || !joinedOn) { setError('Name, mobile, email, employee code, route and joining date are required.'); return; } await onSave({ name: name.trim(), phone: phone.trim(), email: email.trim(), employeeCode: employeeCode.trim(), role, status, accessStatus, route: route.trim(), joinedOn, assignedCustomerIds, branch: branch.trim(), supervisor: supervisor.trim(), identityReference: identityReference.trim(), employmentDocumentReferences: employmentDocumentReferences.trim(), emergencyContact: emergencyContact.trim(), registeredDevice: registeredDevice.trim(), appVersion: appVersion.trim(), lastKnownLocation: lastKnownLocation.trim(), routeEffectiveFrom, routeEffectiveTo, assignmentEffectiveFrom, assignmentEffectiveTo, collectionLimit: collectionLimit.trim(), cashHoldingLimit: cashHoldingLimit.trim(), invitationReference: invitationReference.trim(), mfaPinStatus: mfaPinStatus.trim(), deactivationReason: deactivationReason.trim() });
+            event.preventDefault();
+            const missing = [];
+            if (!name.trim()) missing.push('Name');
+            if (!phone.trim()) missing.push('Mobile number');
+            if (!employeeCode.trim()) missing.push('Employee code');
+            if (!route.trim()) missing.push('Route / area');
+            if (!joinedOn) missing.push('Joining date');
+            if (missing.length > 0) {
+                setError(`Required fields missing: ${missing.join(', ')}`);
+                return;
+            }
+            await onSave({ 
+                name: name.trim(), 
+                phone: phone.trim(), 
+                email: email.trim(), 
+                employeeCode: employeeCode.trim(), 
+                role, 
+                status, 
+                accessStatus, 
+                route: route.trim(), 
+                joinedOn, 
+                assignedCustomerIds, 
+                branch: branch.trim(), 
+                collectionLimit: collectionLimit.trim(), 
+                identityReference: identityReference.trim(), 
+                employmentDocumentReferences: employmentDocumentReferences.trim(),
+                supervisor: '',
+                emergencyContact: '',
+                registeredDevice: '',
+                appVersion: '',
+                lastKnownLocation: '',
+                routeEffectiveFrom: '',
+                routeEffectiveTo: '',
+                assignmentEffectiveFrom: '',
+                assignmentEffectiveTo: '',
+                cashHoldingLimit: collectionLimit.trim(),
+                invitationReference: '',
+                mfaPinStatus: '',
+                deactivationReason: ''
+            });
         } finally { setSaving(false); }
     };
-    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={mode === 'add' ? 'Add collection agent' : 'Edit collection agent'}><div className="admin-modal-header"><div><div className="eyebrow">AGENT ACCESS WORKFLOW</div><h2>{mode === 'add' ? 'Add collection agent' : `Edit ${record?.name}`}</h2><p>Maintain identity, controlled mobile access, route ownership and customer assignments.</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><form className="form-grid customer-form" onSubmit={(event) => void submit(event)}><label>Full name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Agent name" /></label><label>Mobile number<input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+91 98XXXX0000" /></label><label>Work email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="agent@savitribaipatsanstha.coop" /></label><label>Employee code<input value={employeeCode} onChange={(event) => setEmployeeCode(event.target.value)} placeholder="EMP-1901" /></label><label>Agent role<select value={role} onChange={(event) => setRole(event.target.value as AgentRecord['role'])}><option>Collection Agent</option><option>Senior Collection Agent</option></select></label><label>Account status<select value={status} onChange={(event) => setStatus(event.target.value as Status)}><option value="Active">Active</option><option value="Inactive">Inactive</option><option value="Review">Needs review</option><option value="Pending">Pending approval</option></select></label><label>Mobile application access<select value={accessStatus} onChange={(event) => setAccessStatus(event.target.value as AgentRecord['accessStatus'])}><option>Enabled</option><option>Locked</option><option>Pending invitation</option></select></label><label>Branch<input value={branch} onChange={(event) => setBranch(event.target.value)} placeholder="Branch" /></label><label>Supervisor<input value={supervisor} onChange={(event) => setSupervisor(event.target.value)} placeholder="Supervisor" /></label><label>Route / area<input value={route} onChange={(event) => setRoute(event.target.value)} placeholder="Waghapur Tekdi route" /></label><label>Joining date<input type="date" value={joinedOn} onChange={(event) => setJoinedOn(event.target.value)} /></label><label>Identity reference<input value={identityReference} onChange={(event) => setIdentityReference(event.target.value)} placeholder="Identity verification reference" /></label><label>Emergency contact<input value={emergencyContact} onChange={(event) => setEmergencyContact(event.target.value)} placeholder="Name and phone" /></label><label>Registered device<input value={registeredDevice} onChange={(event) => setRegisteredDevice(event.target.value)} placeholder="Device identifier" /></label><label>App version<input value={appVersion} onChange={(event) => setAppVersion(event.target.value)} placeholder="Mobile app version" /></label><label>Last known location<input value={lastKnownLocation} onChange={(event) => setLastKnownLocation(event.target.value)} placeholder="Last location reference" /></label><label>Route effective from<input type="date" value={routeEffectiveFrom} onChange={(event) => setRouteEffectiveFrom(event.target.value)} /></label><label>Route effective to<input type="date" value={routeEffectiveTo} onChange={(event) => setRouteEffectiveTo(event.target.value)} /></label><label>Assignment effective from<input type="date" value={assignmentEffectiveFrom} onChange={(event) => setAssignmentEffectiveFrom(event.target.value)} /></label><label>Assignment effective to<input type="date" value={assignmentEffectiveTo} onChange={(event) => setAssignmentEffectiveTo(event.target.value)} /></label><label>Collection limit<input value={collectionLimit} onChange={(event) => setCollectionLimit(event.target.value)} placeholder="Configured limit" /></label><label>Cash holding limit<input value={cashHoldingLimit} onChange={(event) => setCashHoldingLimit(event.target.value)} placeholder="Configured limit" /></label><label>Invitation reference<input value={invitationReference} onChange={(event) => setInvitationReference(event.target.value)} placeholder="Invitation reference" /></label><label>MFA / PIN status<input value={mfaPinStatus} onChange={(event) => setMfaPinStatus(event.target.value)} placeholder="Enrollment or PIN status" /></label><label className="full-field">Employment document references<textarea value={employmentDocumentReferences} onChange={(event) => setEmploymentDocumentReferences(event.target.value)} placeholder="Employment and verification documents" /></label><label className="full-field">Deactivation reason<textarea value={deactivationReason} onChange={(event) => setDeactivationReason(event.target.value)} placeholder="Capture when applicable" /></label><div className="full-field"><span className="field-label">Assigned customers</span><div className="agent-assignment-list">{availableCustomers.map((customer) => <label key={customer.id} className="checkbox-row"><input type="checkbox" checked={assignedCustomerIds.includes(customer.id)} onChange={() => toggleCustomer(customer.id)} />{customer.primary} · {customer.id}</label>)}</div></div>{error && <p className="form-error full-field">{error}</p>}<div className="admin-form-actions full-field"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <Loader2 size={15} className="spin" /> : null}{saving ? 'Saving…' : 'Save agent locally'}</button></div></form></section></div>;
+    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={mode === 'add' ? 'Add collection agent' : 'Edit collection agent'}><div className="admin-modal-header"><div><div className="eyebrow">AGENT ACCESS WORKFLOW</div><h2>{mode === 'add' ? 'Add collection agent' : `Edit ${record?.name}`}</h2><p>Maintain identity, controlled mobile access, route ownership and customer assignments.</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><form className="form-grid customer-form" onSubmit={(event) => void submit(event)}><label className="full-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}><span>Employee code (Select Staff)</span>{mode === 'add' ? (<div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}><select value={employeeCode} onChange={(e) => handleStaffSelect(e.target.value)} style={{ flex: 1 }} disabled={staffLoading}><option value="" disabled>-- Select a staff member --</option>{availableStaff.map(staff => <option key={staff.id} value={staff.staffCode}>{staff.staffCode} - {staff.fullName}</option>)}</select>{staffLoading && <Loader2 size={15} className="spin" />}</div>) : (<input value={employeeCode} readOnly style={{ opacity: 0.7, pointerEvents: 'none' }} />)}</label><label>Full name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Enter agent name" readOnly={mode === 'add' && name !== ''} style={mode === 'add' && name !== '' ? { opacity: 0.7, pointerEvents: 'none' } : {}} /></label><label>Mobile number<input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Enter mobile number" readOnly={mode === 'add' && phone !== ''} style={mode === 'add' && phone !== '' ? { opacity: 0.7, pointerEvents: 'none' } : {}} /></label><label>Work email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Enter work email" readOnly={mode === 'add' && email !== ''} style={mode === 'add' && email !== '' ? { opacity: 0.7, pointerEvents: 'none' } : {}} /></label><label>Agent role<select value={role} onChange={(event) => setRole(event.target.value as AgentRecord['role'])}><option>Collection Agent</option><option>Senior Collection Agent</option></select></label><label>Account status<select value={status} onChange={(event) => setStatus(event.target.value as Status)}><option value="Active">Active</option><option value="Inactive">Inactive</option><option value="Review">Needs review</option><option value="Pending">Pending approval</option></select></label><label>Mobile application access<select value={accessStatus} onChange={(event) => setAccessStatus(event.target.value as AgentRecord['accessStatus'])}><option>Enabled</option><option>Locked</option><option>Pending invitation</option></select></label><label>Branch<input value={branch} onChange={(event) => setBranch(event.target.value)} placeholder="Enter branch name" readOnly={mode === 'add' && branch !== ''} style={mode === 'add' && branch !== '' ? { opacity: 0.7, pointerEvents: 'none' } : {}} /></label><label>Route / area<input value={route} onChange={(event) => setRoute(event.target.value)} placeholder="Enter route or area" /></label><label>Joining date<input type="date" value={joinedOn} onChange={(event) => setJoinedOn(event.target.value)} /></label><label>Collection limit<input value={collectionLimit} onChange={(event) => setCollectionLimit(event.target.value)} placeholder="Enter collection limit" /></label><label>Identity reference<input value={identityReference} onChange={(event) => setIdentityReference(event.target.value)} placeholder="Enter identity reference" /></label><label className="full-field">Employment document references<textarea value={employmentDocumentReferences} onChange={(event) => setEmploymentDocumentReferences(event.target.value)} placeholder="Enter employment document details" /></label><div className="full-field"><span className="field-label">Assigned customers</span><div className="agent-assignment-list">{availableCustomers.map((customer) => <label key={customer.id} className="checkbox-row"><input type="checkbox" checked={assignedCustomerIds.includes(customer.id)} onChange={() => toggleCustomer(customer.id)} />{customer.primary} · {customer.id}</label>)}</div></div>{error && <p className="form-error full-field">{error}</p>}<div className="admin-form-actions full-field"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <Loader2 size={15} className="spin" /> : null}{saving ? 'Saving…' : (mode === 'add' ? 'Onboard Agent' : 'Save changes')}</button></div></form></section></div>;
 }
 
 export function AgentDetail({ agent, onClose, onEdit, onToggle, onToast }: { agent: AgentRecord; onClose: () => void; onEdit: () => void; onToggle: () => void; onToast: (message: string) => void }) {
