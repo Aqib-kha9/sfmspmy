@@ -456,7 +456,7 @@ export class ApiCustomerRepository implements CustomerRepository {
         params.delete('limit');
         params.delete('offset');
         try {
-            return await apiClient.request<string>(`/customers/export?${params.toString()}`, { raw: true });
+            return await apiClient.request<string>(`/customers/export?${params.toString()}`, { responseType: 'text' });
         } catch (error) {
             throw new Error(messageFor(error, 'Unable to export customer records.'));
         }

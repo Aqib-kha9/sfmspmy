@@ -150,9 +150,29 @@ export function CustomersPage() {
         <div className="page-heading"><div><div className="eyebrow">OPERATIONS / CUSTOMERS</div><h1>Customers</h1><p>Manage profiles, nominees, assigned agents, accounts, services and customer history.</p></div>{canWrite && <button className="primary-button" onClick={() => setModal('add')}><Plus size={16} /> Add customer</button>}</div>
         <div className="summary-strip"><div className="summary-item"><span>Total customers</span><strong>{stats.total}</strong></div><div className="summary-item"><span>Active customers</span><strong className="green">{stats.active}</strong></div><div className="summary-item"><span>New this month</span><strong>{stats.registeredThisMonth}</strong></div><div className="summary-item"><span>Needs review</span><strong className="orange">{stats.needsReview}</strong></div></div>
         <section className="panel table-panel">
+            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border)', marginBottom: '1rem', paddingBottom: '0.5rem', overflowX: 'auto' }}>
+                {accountTypeOptions.map((option) => (
+                    <button
+                        key={option}
+                        type="button"
+                        onClick={() => chooseAccountType(option)}
+                        style={{
+                            padding: '0.5rem 1rem',
+                            border: 'none',
+                            background: 'transparent',
+                            borderBottom: accountType === option ? '2px solid var(--accent)' : '2px solid transparent',
+                            color: accountType === option ? 'var(--accent)' : 'var(--text-muted)',
+                            fontWeight: accountType === option ? 600 : 400,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                        }}
+                    >
+                        {accountTypeLabels[option]}
+                    </button>
+                ))}
+            </div>
             <div className="filter-bar">
                 <div className="filter-search"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search name, ID, mobile, account or agent..." aria-label="Search customers" /></div>
-                <select className="filter-button customer-status-filter" value={accountType} onChange={(event) => chooseAccountType(event.target.value as AccountTypeFilter)} aria-label="Filter customers by account type">{accountTypeOptions.map((option) => <option key={option} value={option}>{accountTypeLabels[option]}</option>)}</select>
                 <select className="filter-button customer-status-filter" value={customerId} onChange={(event) => chooseCustomer(event.target.value)} aria-label="Filter customers by customer name"><option value="">All customer names</option>{options.map((option) => <option key={option.id} value={option.id}>{option.name} · {option.customerNumber}</option>)}</select>
                 <select className="filter-button customer-status-filter" value={status} onChange={(event) => chooseStatus(event.target.value as Status | 'All')} aria-label="Filter customers by status"><option value="All">All statuses</option><option value="Active">Active</option><option value="Pending">Pending</option><option value="Review">Needs review</option><option value="Inactive">Inactive</option></select>
                 <div className="filter-popover">

@@ -49,7 +49,7 @@ export function querySuffix(filters: Record<string, string | number | boolean | 
  * the caller can trigger a browser download without leaving the SPA.
  */
 export async function downloadBinary(path: string, filename: string): Promise<void> {
-    const blob = await apiClient.request<Blob>(path, { raw: true });
+    const blob = await apiClient.request<Blob>(path, { responseType: 'blob' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;

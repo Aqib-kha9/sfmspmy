@@ -42,8 +42,10 @@ export interface RequestOptions {
     headers?: Record<string, string>;
     /** When true the access token is NOT attached (login, refresh). */
     auth?: boolean;
-    /** When true, a 204/empty body resolves to undefined. */
+    /** Raw response handling, deprecated in favor of responseType */
     raw?: boolean;
+    /** Expected response type. Defaults to 'json'. Use 'blob' for binary downloads. */
+    responseType?: 'json' | 'text' | 'blob';
 }
 
 /** Token store abstraction so the client can refresh and persist credentials. */
@@ -98,7 +100,7 @@ export class ApiClient {
     }
 
     async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-        const { method = 'GET', body, headers, auth = true, raw = false } = options;
+        const { method = 'GET', body, headers, auth = true, raw = false, responseType = 'json' } = options;
         const url = `${this.baseUrl}${path}`;
         const requestHeaders: Record<string, string> = {
             Accept: 'application/json',
@@ -129,7 +131,7 @@ export class ApiClient {
                 this.options.onUnauthorized?.('session_expired');
             }
         }
-        return this.decode<T>(response, raw);
+        return this.decode<T>(response, raw, responseType);
     }
 
     private async send(url: string, method: HttpMethod, headers: Record<string, string>, body?: unknown): Promise<Response> {
@@ -175,23 +177,33 @@ export class ApiClient {
         return true;
     }
 
-    private async decode<T>(response: Response, raw: boolean): Promise<T> {
+    private async decode<T>(response: Response, raw: boolean, responseType: 'json' | 'text' | 'blob' = 'json'): Promise<T> {
         if (response.status === 204) return undefined as T;
         const contentType = response.headers.get('content-type') ?? '';
         const isJson = contentType.includes('application/json');
-        if (!isJson) {
-            if (raw) return (await response.text()) as unknown as T;
-            throw toApiError(response.status, `Unexpected response from the server (HTTP ${response.status}).`);
-        }
-        const payload = (await response.json()) as T | ApiErrorBody;
-        if (!response.ok) {
-            const body = payload as ApiErrorBody;
-            const error = body.error;
+        
+        if (!response.ok && isJson) {
+            const payload = (await response.json()) as ApiErrorBody;
+            const error = payload.error;
             if (error) {
                 throw new ApiError(response.status, error.code, error.message, error.requestId, error.details);
             }
+        }
+        
+        if (!response.ok) {
             throw toApiError(response.status, `Request failed (HTTP ${response.status}).`);
         }
-        return payload as T;
+
+        if (responseType === 'blob') {
+            return (await response.blob()) as unknown as T;
+        }
+
+        if (!isJson || responseType === 'text') {
+            if (raw || responseType === 'text') return (await response.text()) as unknown as T;
+            throw toApiError(response.status, `Unexpected response from the server (HTTP ${response.status}).`);
+        }
+
+        const payload = (await response.json()) as T;
+        return payload;
     }
 }

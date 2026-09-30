@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, ChevronRight, Loader2 } from 'lucide-react';
 import { collectionsRepository } from '../services/operations/collectionsApiRepository';
-import { formatTimestamp } from '../services/operations/helpers';
+import { formatTimestamp, formatDate } from '../services/operations/helpers';
 import type { VisitOutcome, VisitView } from '../../../lib/api/types';
 
 export function VisitsPage() {
@@ -44,31 +44,33 @@ export function VisitsPage() {
                 </div>
             </header>
 
-            <div className="filters-bar">
-                <div className="filter-group">
-                    <label>From</label>
-                    <div className="filter-input-wrap">
-                        <CalendarDays size={16} />
-                        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-                    </div>
-                </div>
-                <div className="filter-group">
-                    <label>To</label>
-                    <div className="filter-input-wrap">
-                        <CalendarDays size={16} />
-                        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-                    </div>
-                </div>
-                <div className="filter-group">
-                    <label>Outcome</label>
-                    <select value={outcome} onChange={(e) => setOutcome(e.target.value as VisitOutcome | '')}>
-                        <option value="">All outcomes</option>
-                        <option value="collected">Collected</option>
-                        <option value="notAvailable">Not Available</option>
-                        <option value="promised">Promised</option>
-                        <option value="refused">Refused</option>
-                    </select>
-                </div>
+            <div className="filter-bar">
+                <label className="statement-field">
+                    <span>From date</span>
+                    <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+                </label>
+                <label className="statement-field">
+                    <span>To date</span>
+                    <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+                </label>
+                <select 
+                    className="filter-button customer-status-filter" 
+                    value={outcome} 
+                    onChange={(e) => setOutcome(e.target.value as VisitOutcome | '')}
+                >
+                    <option value="">All outcomes</option>
+                    <option value="collected">Collected</option>
+                    <option value="notAvailable">Not Available</option>
+                    <option value="promised">Promised</option>
+                    <option value="refused">Refused</option>
+                </select>
+                <button 
+                    className="secondary-button" 
+                    onClick={() => { setDateFrom(''); setDateTo(''); setOutcome(''); }}
+                    disabled={!dateFrom && !dateTo && !outcome}
+                >
+                    Clear filters
+                </button>
             </div>
 
             <div className="data-table-container">
@@ -102,7 +104,7 @@ export function VisitsPage() {
                                 <tr key={visit.id}>
                                     <td>
                                         <div className="stack-cell">
-                                            <strong>{visit.visitDate}</strong>
+                                            <strong>{formatDate(visit.visitDate)}</strong>
                                             <span>{visit.visitedAt ? formatTimestamp(visit.visitedAt) : 'No exact time'}</span>
                                         </div>
                                     </td>

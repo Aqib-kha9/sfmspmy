@@ -59,6 +59,7 @@ export type ReportRecord = {
     description: string;
     lastGenerated: string;
     generatedBy: string;
+    availableFilters: string[];
     /** Backend uuid of a generated report, when one has been produced this session. */
     generatedId?: string;
     filename?: string;
@@ -83,6 +84,8 @@ export type ReportGenerateInput = {
     toDate?: string;
     branch?: string;
     agent?: string;
+    customerId?: string;
+    accountId?: string;
     customerOrAccountScope?: string;
     fiscalYear?: string;
     timezone?: string;
@@ -146,6 +149,7 @@ function toRecord(view: ReportCatalogueView): ReportRecord {
         scope: scopeOf(view.reportType),
         output: outputOf(view),
         description: view.description ?? 'Report generated from live cooperative data.',
+        availableFilters: view.availableFilters,
         lastGenerated: 'Not generated',
         generatedBy: '—',
     };
@@ -159,9 +163,11 @@ export class ApiReportsRepository implements ReportsRepository {
 
     async generate(input: ReportGenerateInput): Promise<ReportRecord> {
         const filters: Record<string, unknown> = {};
-        if (input.report.reportType === 'daily_collection_register' && input.agent) filters.agent_id = input.agent;
+        if (input.agent) filters.agent_id = input.agent;
         if (input.statusFilter) filters.status = input.statusFilter;
         if (input.branch) filters.branch_id = input.branch;
+        if (input.customerId) filters.customer_id = input.customerId;
+        if (input.accountId) filters.account_id = input.accountId;
 
         const result = await apiClient.request<ReportGenerationView>(`/reports/${input.report.reportType}/generate`, {
             method: 'POST',
