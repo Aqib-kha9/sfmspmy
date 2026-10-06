@@ -1,5 +1,6 @@
 // OPERATIONS / Deposits.
 
+import { Pagination } from '../../../components/ui/Pagination';
 import { FormEvent, useEffect, useState } from 'react';
 import { CalendarDays, CheckCircle2, ChevronRight, Download, Filter, Loader2, LockKeyhole, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { depositsRepository } from '../services/operations/depositsApiRepository';
@@ -516,15 +517,8 @@ export function DepositsPage() {
                     </tr>}</tbody>
                 </table>
             </div>
-            <div className="table-footer">
-                <span>Showing {visibleRows.length} of {filteredRows.length} deposit accounts</span>
-                <div>
-                    <button className="pagination-button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={currentPage <= 1}>Prev</button>
-                    <button className="pagination-button selected">{currentPage}</button>
-                    <button className="pagination-button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={currentPage >= totalPages}>Next</button>
-                </div>
-            </div>
-        </section>
+            <Pagination page={page} pageSize={10} totalItems={filteredRows.length} itemName="deposits" setPage={setPage} />
+</section>
         {modal === 'account' && <DepositModal mode="account" onClose={close} onSave={(input) => saveAccount(input as DepositInput)} />}
         {modal === 'transaction' && selected && <DepositModal mode="transaction" record={selected} onClose={close} onSave={(input) => saveTransaction(input as DepositTransactionInput)} />}
         {modal === 'edit' && selected && <DepositEditModal record={selected} onClose={close} onSave={saveEdit} />}

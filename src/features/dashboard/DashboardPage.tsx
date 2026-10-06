@@ -213,14 +213,14 @@ export function DashboardPage() {
 
     if (loading && !overview) {
         return <div className="dashboard-page">
-            <div className="page-heading"><div><div className="eyebrow">LIVE OVERVIEW</div><h1>Loading dashboard</h1><p>Fetching live figures from the server…</p></div><button className="primary-button" onClick={() => void load()}><RefreshCw size={17} /> Refresh</button></div>
+            <div className="page-heading"><div><div className="eyebrow">LIVE OVERVIEW</div><h1>Loading dashboard</h1><p>Fetching live figures from the server…</p></div><button className="primary-button" onClick={() => void load()} disabled={loading}><RefreshCw size={17} className={loading ? "animate-spin" : ""} /> {loading ? "Refreshing..." : "Refresh"}</button></div>
             <div className="panel"><p className="empty-state">Fetching the latest collections, pending work and agent performance.</p></div>
         </div>;
     }
 
     return <div className="dashboard-page">
         <div className="page-heading"><div><div className="eyebrow">{formatDateHeading(overview?.date ?? '')}</div><h1>{greeting()}, {firstName} <span>✦</span></h1><p>Live figures from the patsanstha server for today's business date.</p></div>
-            <button className="primary-button" onClick={() => void load()}><RefreshCw size={17} /> Refresh</button>
+            <button className="primary-button" onClick={() => void load()} disabled={loading}><RefreshCw size={17} className={loading ? "animate-spin" : ""} /> {loading ? "Refreshing..." : "Refresh"}</button>
         </div>
 
         {error && <div className="panel" style={{ marginBottom: '1rem' }}><p className="empty-state">Could not refresh the dashboard: {error}. <button className="text-button" onClick={() => void load()}>Retry</button></p></div>}

@@ -15,6 +15,7 @@
 // from the admin workspace — recording an entry here is the M.D. emergency
 // approval path (§14.1).
 
+import { Pagination } from '../../../components/ui/Pagination';
 import { FormEvent, useEffect, useState } from 'react';
 import { ArrowDownToLine, CalendarDays, CheckCircle2, ChevronRight, Download, Loader2, Search } from 'lucide-react';
 import { collectionsRepository, type CollectionRecord } from '../services/operations/collectionsApiRepository';
@@ -482,14 +483,7 @@ export function ScopedCollectionsPage() {
                     </tbody>
                 </table>
             </div>
-            <div className="pagination">
-                <span>Showing {collectionRows.length ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, collectionRows.length)} of {collectionRows.length}</span>
-                <div>
-                    <button className="pagination-button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>Prev</button>
-                    <button className="pagination-button selected">{page}</button>
-                    <button className="pagination-button" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page >= pageCount}>Next</button>
-                </div>
-            </div>
+            <Pagination page={page} pageSize={pageSize} totalItems={collectionRows.length} itemName="collections" setPage={setPage} />
         </section>
         {modal === 'entry' && isMd && <EmergencyApprovalModal onClose={close} onSave={submitEmergency} />}
         {modal === 'review' && selected && <ReviewActionModal record={selected} onClose={close} onSave={submitReview} />}

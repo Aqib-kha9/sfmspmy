@@ -42,7 +42,7 @@ export function LoginPage() {
     return (
         <div className="login-page">
             <div className="login-brand">
-                <div className="brand-mark login-brand-mark"><ShieldCheck size={26} /></div>
+                <img src="/logo.png" alt="Savitribai Fule Logo" style={{ width: '48px', height: '48px', borderRadius: '12px', objectFit: 'contain', margin: '0 auto 20px', display: 'block' }} />
                 <div>
                     <strong>Savitribai Fule</strong>
                     <span>Mahila Nagari Sahakari Patsanstha, Yavatmal</span>
