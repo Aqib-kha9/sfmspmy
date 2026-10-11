@@ -100,7 +100,7 @@ export type RDInput = Pick<
         >
     >;
 
-export type RDCollectionInput = Pick<RDInstallment, 'amount' | 'dueDate' | 'agent'> & { reference: string } &
+export type RDCollectionInput = Pick<RDInstallment, 'amount' | 'dueDate' | 'agent'> & { reference: string; paidDate?: string } &
     Partial<Omit<RDInstallment, 'id' | 'amount' | 'dueDate' | 'agent' | 'reference' | 'status' | 'paidDate'>>;
 
 export type RdQuery = {
@@ -557,6 +557,7 @@ async recordInstalment(id: string, input: RDCollectionInput): Promise<RDRecord> 
         paymentMethod: 'cash',
     };
     if (input.reference) body.referenceNumber = input.reference;
+    if (input.paidDate) body.paidOn = input.paidDate;
     await apiClient.request<InstalmentPaymentResult>(`/rd/accounts/${uuid}/instalments`, {
         method: 'POST',
         body,

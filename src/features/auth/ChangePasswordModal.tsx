@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { Modal } from '../../components/overlays/Modal';
+import { Req, FormLegend } from '../../components/ui/FieldIndicators';
 import { useAuth } from './AuthContext';
 
 /**
@@ -53,10 +54,11 @@ export function ChangePasswordModal({ onClose, onSuccess }: { onClose: () => voi
     return (
         <Modal title="Change password" eyebrow="ACCOUNT SECURITY" onClose={onClose}>
             <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
+                <FormLegend />
                 <p className="customer-modal-intro full-field"><ShieldCheck size={15} /> Rotating your password signs out every other active session. This session stays signed in.</p>
-                <label className="full-field">Current password<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
-                <label className="full-field">New password<input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="At least 8 characters" /></label>
-                <label className="full-field">Confirm new password<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+                <label className="full-field"><span>Current password <Req /></span><input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
+                <label className="full-field"><span>New password <Req /></span><input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="At least 8 characters" /></label>
+                <label className="full-field"><span>Confirm new password <Req /></span><input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
                 {error && <p className="form-error full-field">{error}</p>}
                 <div className="admin-form-actions full-field">
                     <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button>

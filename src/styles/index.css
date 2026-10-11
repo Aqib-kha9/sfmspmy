@@ -154,6 +154,10 @@ h3 { margin-bottom: 4px; font-size: 14px; }
 .customer-form, .dashboard-form { padding: 22px 24px; }
 .form-grid, .dashboard-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .form-grid label, .dashboard-form label { display: grid; gap: 7px; color: #68525b; font-size: 11px; font-weight: 700; }
+.field-req { color: #e11d48; font-weight: 800; font-size: 13px; margin-left: 4px; display: inline-block; line-height: 1; }
+.field-opt { color: #78656f; font-size: 10px; font-weight: 500; margin-left: 6px; text-transform: none; letter-spacing: normal; background: #f1ede8; padding: 1.5px 6px; border-radius: 4px; display: inline-block; vertical-align: middle; line-height: 1.2; }
+.form-legend { display: flex; align-items: center; gap: 16px; padding: 8px 12px; margin-bottom: 4px; background: #fcf9f6; border: 1px dashed #e2dad2; border-radius: 6px; font-size: 11px; color: #68525b; grid-column: 1 / -1; }
+.form-legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .form-grid input, .form-grid select, .form-grid textarea, .dashboard-form input, .dashboard-form select, .dashboard-form textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 10px 11px; color: var(--ink); background: #fdfbfc; font-size: 12px; }
 .form-grid textarea, .dashboard-form textarea { min-height: 86px; resize: vertical; } .full-field { grid-column: 1 / -1; }
 .form-section-heading { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 0; color: var(--ink); font-size: 13px; }

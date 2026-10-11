@@ -180,7 +180,7 @@ export interface LoanRepository {
     /** Officer recommendation step required before the President/M.D. can approve. */
     recommend(applicationId: string): Promise<void>;
     reject(applicationId: string, reason: string): Promise<void>;
-    disburse(applicationId: string): Promise<void>;
+    disburse(applicationId: string, disbursedOn?: string): Promise<void>;
     reschedule(loanId: string, input: RescheduleLoanInput): Promise<void>;
     settle(loanId: string, input?: SettleLoanInput): Promise<LoanSettleResult>;
     writeOff(loanId: string, input: WriteOffLoanInput): Promise<LoanWriteOffResult>;
@@ -622,6 +622,7 @@ export class ApiLoanRepository implements LoanRepository {
             tenureMonths: input.tenureMonths,
             repaymentFrequency: FREQUENCY_TO_API[input.repaymentFrequency ?? 'Monthly'],
             proposedInterestRate: String(input.interestRate),
+            appliedOn: input.loanDate || undefined,
             ...(guarantors.length > 0 ? { guarantors } : {}),
             ...(collateral.length > 0 ? { collateral } : {}),
             documents,
@@ -665,8 +666,9 @@ export class ApiLoanRepository implements LoanRepository {
         await apiClient.request(`/loans/applications/${applicationId}/approve`, { method: 'POST', body: payload });
     }
 
-    async disburse(applicationId: string): Promise<void> {
-        await apiClient.request(`/loans/${applicationId}/disburse`, { method: 'POST', body: {} });
+    async disburse(applicationId: string, disbursedOn?: string): Promise<void> {
+        const body = disbursedOn ? { disbursedOn } : {};
+        await apiClient.request(`/loans/${applicationId}/disburse`, { method: 'POST', body });
     }
 
     async reschedule(loanId: string, input: RescheduleLoanInput): Promise<void> {

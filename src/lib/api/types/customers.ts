@@ -190,6 +190,7 @@ export interface CreateCustomerInput {
         copyReference?: string | null;
         isVerified?: boolean;
     }>;
+    registrationDate?: string;
 }
 
 export type UpdateCustomerInput = Partial<
@@ -210,6 +211,7 @@ export type UpdateCustomerInput = Partial<
         | 'guardianName'
         | 'guardianPhone'
         | 'kycMethod'
+        | 'registrationDate'
     >
 > & {
     addresses?: CreateCustomerInput['addresses'];

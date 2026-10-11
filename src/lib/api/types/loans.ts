@@ -343,6 +343,7 @@ export type CreateLoanApplicationInput = {
     tenureMonths: number;
     repaymentFrequency: LoanRepaymentFrequency;
     proposedInterestRate?: string;
+    appliedOn?: string;
     guarantors?: GuarantorInput[];
     collateral?: CollateralInput[];
     documents?: Record<string, unknown>;

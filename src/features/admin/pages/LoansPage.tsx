@@ -11,6 +11,7 @@ import type { Customer as ApiCustomer } from '../../customers/types/customer.typ
 import type { CustomerOption } from '../../customers/services/customerRepository';
 import { messageFor } from '../services/operations/helpers';
 import { Modal } from '../../../components/overlays/Modal';
+import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
 import { formatCurrency } from '../../../lib/formatters/formatters';
 import { useAuth } from '../../auth/AuthContext';
 import { BUSINESS_RULES } from '../../../lib/permissions/permissions';
@@ -132,7 +133,7 @@ export function LoanModal({ mode, record, onClose, onSave }: { mode: 'account' |
     const [documentationFee, setDocumentationFee] = useState(String(record?.documentationFee ?? 0));
     const [insuranceFee, setInsuranceFee] = useState(String(record?.insuranceFee ?? 0));
     const [otherCharges, setOtherCharges] = useState(String(record?.otherCharges ?? 0));
-    const [loanDate, setLoanDate] = useState(record?.loanDate ?? '');
+    const [loanDate, setLoanDate] = useState(record?.loanDate ?? new Date().toISOString().slice(0, 10));
     const [firstDueDate, setFirstDueDate] = useState(record?.firstDueDate ?? '');
     const [tenureMonths, setTenureMonths] = useState(String(record?.tenureMonths ?? 12));
     const [frequency, setFrequency] = useState<LoanFrequency>(record?.repaymentFrequency ?? 'Monthly');
@@ -213,7 +214,8 @@ export function LoanModal({ mode, record, onClose, onSave }: { mode: 'account' |
                 setCustomerDetails(customer);
                 setCustomerQuery(`${customer.name} · ${customer.phone}`.trim());
                 setIncomeSource((current) => current || customer.occupation);
-                setGuarantorPhone((current) => current || customer.alternatePhone);
+                setGuarantorName((current) => current || customer.nomineeName);
+                setGuarantorPhone((current) => current || customer.nomineePhone || customer.alternatePhone);
             })
             .catch((reason: unknown) => setCustomerError(messageFor(reason, 'Unable to load the selected customer.')))
             .finally(() => setCustomerLoading(false));
@@ -300,6 +302,14 @@ export function LoanModal({ mode, record, onClose, onSave }: { mode: 'account' |
             if (Number.isFinite(value) && value >= product.minTenureMonths && value <= product.maxTenureMonths) return current;
             return String(product.minTenureMonths);
         });
+        setPrincipal((current) => {
+            const value = Number(current);
+            if (!Number.isFinite(value) || value <= 0) return String(product.minAmount);
+            return current;
+        });
+        if (product.maxLtvPercent) {
+            setCollateralLtv((current) => current || String(product.maxLtvPercent));
+        }
         const defaultPurpose = (product.allowedPurposes ?? [])[0];
         if (defaultPurpose) setPurpose((current) => current || defaultPurpose);
     };
@@ -376,7 +386,9 @@ export function LoanModal({ mode, record, onClose, onSave }: { mode: 'account' |
         return rows;
     })();
     const collectionReferenceRequired = !LOAN_METHODS_WITHOUT_REFERENCE.includes(paymentMethod);
-    const field = (label: string, value: string, setValue: (value: string) => void, type = 'text') => <label>{label}<input type={type} value={value} onChange={(event) => setValue(event.target.value)} /></label>;
+    const field = (label: string, value: string, setValue: (value: string) => void, type = 'text', required = false) => (
+        <label><span>{label} {required ? <Req /> : <Opt />}</span><input type={type} value={value} onChange={(event) => setValue(event.target.value)} /></label>
+    );
     return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
         <section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={mode === 'account' ? 'Create production loan account' : 'Record loan installment'}>
             <div className="admin-modal-header">
@@ -388,61 +400,62 @@ export function LoanModal({ mode, record, onClose, onSave }: { mode: 'account' |
                 <button className="icon-button" type="button" onClick={onClose} aria-label="Close dialog">×</button>
             </div>
             <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
+                <FormLegend />
                 {mode === 'account' ? <>
                     <div className="full-field form-section-heading">
                         <strong>Application and pricing</strong>
                         <span>These values drive the repayment schedule.</span>
                     </div>
-                    <label className="full-field">Search customer<input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Search by name, mobile number or customer number..." aria-label="Search customers" /></label>
-                    <label className="full-field">Customer<select value={customerId} onChange={(event) => selectCustomer(event.target.value)} aria-label="Select customer"><option value="">{customerLoading ? 'Loading customers...' : 'Select a customer'}</option>{customerOptions.map((option) => <option key={option.id} value={option.id}>{option.name} | {option.customerNumber}</option>)}</select></label>
+                    <label className="full-field"><span>Search customer <Opt /></span><input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Search by name, mobile number or customer number..." aria-label="Search customers" /></label>
+                    <label className="full-field"><span>Customer <Req /></span><select value={customerId} onChange={(event) => selectCustomer(event.target.value)} aria-label="Select customer"><option value="">{customerLoading ? 'Loading customers...' : 'Select a customer'}</option>{customerOptions.map((option) => <option key={option.id} value={option.id}>{option.name} | {option.customerNumber}</option>)}</select></label>
                     {customerError ? <p className="form-error full-field">{customerError}</p> : null}
                     {customerDetails ? <p className="form-note full-field">Booking against {customerDetails.name} - {customerDetails.phone}{customerDetails.branch ? ` - ${customerDetails.branch}` : null}</p> : null}
-                    <label>Product / scheme<select value={productCode} onChange={(event) => selectProduct(event.target.value)} aria-label="Select loan product"><option value="">{productLoading ? 'Loading products...' : 'Select a product'}</option>{products.map((product) => <option key={product.id} value={product.code}>{`${product.name} | ${product.code} | ${Number(product.interestRate)}% p.a.`}</option>)}</select></label>
-                    <label>Product / scheme code<input value={productCode} onChange={(event) => setProductCode(event.target.value)} /></label>
+                    <label><span>Product / scheme <Req /></span><select value={productCode} onChange={(event) => selectProduct(event.target.value)} aria-label="Select loan product"><option value="">{productLoading ? 'Loading products...' : 'Select a product'}</option>{products.map((product) => <option key={product.id} value={product.code}>{`${product.name} | ${product.code} | ${Number(product.interestRate)}% p.a.`}</option>)}</select></label>
+                    <label><span>Product / scheme code <Opt /></span><input value={productCode} onChange={(event) => setProductCode(event.target.value)} /></label>
                     {productError ? <p className="form-error full-field">{productError}</p> : null}
                     {productHint ? <p className="form-note full-field">{productHint}</p> : null}
-                    <label>Loan type<select value={loanType} onChange={(event) => setLoanType(event.target.value as LoanRecord['loanType'])}><option>Daily Loan</option><option>Weekly Loan</option><option>Personal Loan</option><option>Mortgage Loan</option><option>Business Loan</option><option>Gold Loan</option><option>SHG Loan</option><option>Other Loan</option></select></label>
-                    {field('Loan purpose', purpose, setPurpose)}
-                    <label>Gross principal<input type="number" value={principal} onChange={(event) => setPrincipal(event.target.value)} />{principalBelowMin ? <small className="form-error">Principal is below the product minimum {formatCurrency(Number(selectedProduct?.minAmount ?? 0))}.</small> : null}{principalAboveMax ? <small className="form-error">Principal exceeds the product maximum {formatCurrency(Number(selectedProduct?.maxAmount ?? 0))}.</small> : null}</label>
-                    <label>Interest rate (% p.a.)<input type="number" min={BUSINESS_RULES.MIN_INTEREST_RATE} max={BUSINESS_RULES.MAX_INTEREST_RATE} step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} readOnly={Boolean(selectedProduct)} aria-readonly={Boolean(selectedProduct)} />{rateBelowMin ? <small className="form-error">Rate must be at least {BUSINESS_RULES.MIN_INTEREST_RATE}% as per society rules.</small> : null}{rateAboveMax ? <small className="form-error">Rate cannot exceed {BUSINESS_RULES.MAX_INTEREST_RATE}% as per society rules.</small> : null}{selectedProduct ? <small className="form-note">Set from the selected product; not editable.</small> : null}</label>
-                    <label>Interest method<select value={interestMethod} onChange={(event) => setInterestMethod(event.target.value as LoanInterestMethod)}><option>Flat</option><option>Reducing balance</option><option>Daily reducing</option></select></label>
-                    <label>Repayment frequency<select value={frequency} onChange={(event) => setFrequency(event.target.value as LoanFrequency)}><option>Daily</option><option>Weekly</option><option>Fortnightly</option><option>Monthly</option><option>Quarterly</option></select></label>
-                    <label>Tenure (months)<input type="number" min="1" value={tenureMonths} onChange={(event) => setTenureMonths(event.target.value)} />{tenureBelowMin ? <small className="form-error">Product requires at least {selectedProduct?.minTenureMonths} months.</small> : null}{tenureAboveMax ? <small className="form-error">Product allows at most {selectedProduct?.maxTenureMonths} months.</small> : null}</label>
-                    <label>Installment amount<input type="number" value={installmentAmount} onChange={(event) => setInstallmentAmount(event.target.value)} />{projectedInstallment > 0 ? <small className="form-note">Projected installment {formatCurrency(projectedInstallment)} using the selected method.</small> : null}</label>
-                    {field('Loan / application date', loanDate, setLoanDate, 'date')}
-                    <label>First due date<input type="date" value={firstDueDate} readOnly aria-readonly="true" />{loanDate ? <small className="form-note">Derived from the application date and repayment frequency.</small> : null}</label>
+                    <label><span>Loan type <Req /></span><select value={loanType} onChange={(event) => setLoanType(event.target.value as LoanRecord['loanType'])}><option>Daily Loan</option><option>Weekly Loan</option><option>Personal Loan</option><option>Mortgage Loan</option><option>Business Loan</option><option>Gold Loan</option><option>SHG Loan</option><option>Other Loan</option></select></label>
+                    {field('Loan purpose', purpose, setPurpose, 'text', false)}
+                    <label><span>Gross principal <Req /></span><input type="number" value={principal} onChange={(event) => setPrincipal(event.target.value)} />{principalBelowMin ? <small className="form-error">Principal is below the product minimum {formatCurrency(Number(selectedProduct?.minAmount ?? 0))}.</small> : null}{principalAboveMax ? <small className="form-error">Principal exceeds the product maximum {formatCurrency(Number(selectedProduct?.maxAmount ?? 0))}.</small> : null}</label>
+                    <label><span>Interest rate (% p.a.) <Req /></span><input type="number" min={BUSINESS_RULES.MIN_INTEREST_RATE} max={BUSINESS_RULES.MAX_INTEREST_RATE} step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} readOnly={Boolean(selectedProduct)} aria-readonly={Boolean(selectedProduct)} />{rateBelowMin ? <small className="form-error">Rate must be at least {BUSINESS_RULES.MIN_INTEREST_RATE}% as per society rules.</small> : null}{rateAboveMax ? <small className="form-error">Rate cannot exceed {BUSINESS_RULES.MAX_INTEREST_RATE}% as per society rules.</small> : null}{selectedProduct ? <small className="form-note">Set from the selected product; not editable.</small> : null}</label>
+                    <label><span>Interest method <Req /></span><select value={interestMethod} onChange={(event) => setInterestMethod(event.target.value as LoanInterestMethod)}><option>Flat</option><option>Reducing balance</option><option>Daily reducing</option></select></label>
+                    <label><span>Repayment frequency <Req /></span><select value={frequency} onChange={(event) => setFrequency(event.target.value as LoanFrequency)}><option>Daily</option><option>Weekly</option><option>Fortnightly</option><option>Monthly</option><option>Quarterly</option></select></label>
+                    <label><span>Tenure (months) <Req /></span><input type="number" min="1" value={tenureMonths} onChange={(event) => setTenureMonths(event.target.value)} />{tenureBelowMin ? <small className="form-error">Product requires at least {selectedProduct?.minTenureMonths} months.</small> : null}{tenureAboveMax ? <small className="form-error">Product allows at most {selectedProduct?.maxTenureMonths} months.</small> : null}</label>
+                    <label><span>Installment amount <Req /></span><input type="number" value={installmentAmount} onChange={(event) => setInstallmentAmount(event.target.value)} />{projectedInstallment > 0 ? <small className="form-note">Projected installment {formatCurrency(projectedInstallment)} using the selected method.</small> : null}</label>
+                    {field('Loan / application date', loanDate, setLoanDate, 'date', true)}
+                    <label><span>First due date <Req /></span><input type="date" value={firstDueDate} readOnly aria-readonly="true" />{loanDate ? <small className="form-note">Derived from the application date and repayment frequency.</small> : null}</label>
                     <div className="full-field form-section-heading">
                         <strong>Charges and repayment controls</strong>
                         <span>Charges are separated from principal for transparent net disbursement.</span>
                     </div>
-                    {field('Processing fee', processingFee, setProcessingFee, 'number')}
-                    {field('Documentation fee', documentationFee, setDocumentationFee, 'number')}
-                    {field('Insurance fee', insuranceFee, setInsuranceFee, 'number')}
-                    {field('Other charges', otherCharges, setOtherCharges, 'number')}
-                    {field('Grace period (days)', gracePeriodDays, setGracePeriodDays, 'number')}
-                    {field('Moratorium (months)', moratoriumMonths, setMoratoriumMonths, 'number')}
-                    {field('Late fee per missed installment', lateFee, setLateFee, 'number')}
-                    {field('Penal interest (% p.a.)', penalInterestRate, setPenalInterestRate, 'number')}
+                    {field('Processing fee', processingFee, setProcessingFee, 'number', false)}
+                    {field('Documentation fee', documentationFee, setDocumentationFee, 'number', false)}
+                    {field('Insurance fee', insuranceFee, setInsuranceFee, 'number', false)}
+                    {field('Other charges', otherCharges, setOtherCharges, 'number', false)}
+                    {field('Grace period (days)', gracePeriodDays, setGracePeriodDays, 'number', false)}
+                    {field('Moratorium (months)', moratoriumMonths, setMoratoriumMonths, 'number', false)}
+                    {field('Late fee per missed installment', lateFee, setLateFee, 'number', false)}
+                    {field('Penal interest (% p.a.)', penalInterestRate, setPenalInterestRate, 'number', false)}
                     <div className="full-field form-section-heading">
                         <strong>Borrower, security and disbursement</strong>
                         <span>Conditional security fields are mandatory when the product requires collateral.</span>
                     </div>
-                    {field('Income / employment source', incomeSource, setIncomeSource)}
-                    {field('Monthly income', monthlyIncome, setMonthlyIncome, 'number')}
-                    {field('Guarantor name', guarantorName, setGuarantorName)}
-                    {field('Guarantor phone', guarantorPhone, setGuarantorPhone)}
-                    {field('Collateral description', collateralDescription, setCollateralDescription)}
-                    <label>Collateral value<input type="number" value={collateralValue} onChange={(event) => setCollateralValue(event.target.value)} />{collateralBelowRequired ? <small className="form-error">Collateral must be at least {formatCurrency(requiredCollateral)} to cover {formatCurrency(principalNumber)} at {BUSINESS_RULES.COLLATERAL_LENDING_PERCENT}% LTV.</small> : null}</label>
-                    <label>Collateral LTV (%)<input type="number" min="1" max={BUSINESS_RULES.COLLATERAL_LENDING_PERCENT} value={collateralLtv} onChange={(event) => setCollateralLtv(event.target.value)} />{ltvAboveCap ? <small className="form-error">LTV cannot exceed {BUSINESS_RULES.COLLATERAL_LENDING_PERCENT}% as per society rules.</small> : null}</label>
-                    {field('Collateral custody reference', collateralReference, setCollateralReference)}
-                    <label>Disbursement method<select value={disbursementMethod} onChange={(event) => setDisbursementMethod(event.target.value as NonNullable<LoanRecord['disbursementMethod']>)}><option>Cash</option><option>Bank transfer</option><option>Cheque</option><option>Mobile money</option></select></label>
-                    {field('Disbursement reference', disbursementReference, setDisbursementReference)}
-                    <label>Initial lifecycle status<select value={status} onChange={(event) => setStatus(event.target.value as Status)}><option>Review</option><option>Pending</option><option>Active</option><option>Overdue</option></select></label>
+                    {field('Income / employment source', incomeSource, setIncomeSource, 'text', false)}
+                    {field('Monthly income', monthlyIncome, setMonthlyIncome, 'number', false)}
+                    {field('Guarantor name', guarantorName, setGuarantorName, 'text', false)}
+                    {field('Guarantor phone', guarantorPhone, setGuarantorPhone, 'text', false)}
+                    {field('Collateral description', collateralDescription, setCollateralDescription, 'text', false)}
+                    <label><span>Collateral value <Opt /></span><input type="number" value={collateralValue} onChange={(event) => setCollateralValue(event.target.value)} />{collateralBelowRequired ? <small className="form-error">Collateral must be at least {formatCurrency(requiredCollateral)} to cover {formatCurrency(principalNumber)} at {BUSINESS_RULES.COLLATERAL_LENDING_PERCENT}% LTV.</small> : null}</label>
+                    <label><span>Collateral LTV (%) <Opt /></span><input type="number" min="1" max={BUSINESS_RULES.COLLATERAL_LENDING_PERCENT} value={collateralLtv} onChange={(event) => setCollateralLtv(event.target.value)} />{ltvAboveCap ? <small className="form-error">LTV cannot exceed {BUSINESS_RULES.COLLATERAL_LENDING_PERCENT}% as per society rules.</small> : null}</label>
+                    {field('Collateral custody reference', collateralReference, setCollateralReference, 'text', false)}
+                    <label><span>Disbursement method <Req /></span><select value={disbursementMethod} onChange={(event) => setDisbursementMethod(event.target.value as NonNullable<LoanRecord['disbursementMethod']>)}><option>Cash</option><option>Bank transfer</option><option>Cheque</option><option>Mobile money</option></select></label>
+                    {field('Disbursement reference', disbursementReference, setDisbursementReference, 'text', false)}
+                    <label><span>Initial lifecycle status <Opt /></span><select value={status} onChange={(event) => setStatus(event.target.value as Status)}><option>Review</option><option>Pending</option><option>Active</option><option>Overdue</option></select></label>
                 </> : <>
-                    {field('Receipt amount', amount, setAmount, 'number')}
-                    <label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as LoanPaymentMethod)} aria-label="Payment method">{LOAN_PAYMENT_METHODS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                    <label>Paid date<input type="date" value={paidOn} onChange={(event) => setPaidOn(event.target.value)} />{!paidOn ? <small className="form-note">Leave blank to use today's date.</small> : null}</label>
-                    <label>Receipt reference<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder={collectionReferenceRequired ? 'Required for this payment method' : 'Optional'} /></label>
+                    {field('Receipt amount', amount, setAmount, 'number', true)}
+                    <label><span>Payment method <Req /></span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as LoanPaymentMethod)} aria-label="Payment method">{LOAN_PAYMENT_METHODS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                    <label><span>Paid date <Opt /></span><input type="date" value={paidOn} onChange={(event) => setPaidOn(event.target.value)} />{!paidOn ? <small className="form-note">Leave blank to use today's date.</small> : null}</label>
+                    <label><span>Receipt reference {collectionReferenceRequired ? <Req /> : <Opt />}</span><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder={collectionReferenceRequired ? 'Required for this payment method' : 'Optional'} /></label>
                     {collectionReferenceRequired ? <p className="form-note full-field">A reference number is mandatory for non-cash / non-mobile-money collections.</p> : null}
                     <div className="full-field form-section-heading">
                         <strong>Allocation preview (read-only)</strong>
@@ -504,10 +517,10 @@ export function LoanLifecycleModal({ record, kind, onClose, onSave }: { record: 
                 ? <>Writing off {record.customerName} ({record.customerId}) waives the entire outstanding balance of ₹{record.outstandingAmount.toLocaleString('en-IN')} and closes the loan. The backend records the write-off amount, reason and approver as an irreversible terminal action.</>
                 : <>Settling {record.customerName} ({record.customerId}) closes the loan once nothing remains outstanding. The backend rejects the request while any instalment is unpaid, so record the final receipts first.</>}</p>
             {isWriteOff
-                ? <label className="full-field">Write-off reason (minimum 3 characters)<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} aria-label="Write-off reason" /></label>
+                ? <label className="full-field"><span>Write-off reason (minimum 3 characters) <Req /></span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} aria-label="Write-off reason" /></label>
                 : <>
-                    <label>Settlement date<input type="date" value={settledOn} onChange={(event) => setSettledOn(event.target.value)} aria-label="Settlement date" /></label>
-                    <label>Settlement note (optional)<input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} aria-label="Settlement note" /></label>
+                    <label><span>Settlement date <Req /></span><input type="date" value={settledOn} onChange={(event) => setSettledOn(event.target.value)} aria-label="Settlement date" /></label>
+                    <label><span>Settlement note <Opt /></span><input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} aria-label="Settlement note" /></label>
                     <p className="form-note full-field">Outstanding balance on the ledger: ₹{record.outstandingAmount.toLocaleString('en-IN')}. Settle is only accepted while this reads zero.</p>
                 </>}
             {error && <p className="form-error full-field">{error}</p>}
@@ -556,10 +569,10 @@ export function LoanRescheduleModal({ record, onClose, onSave }: { record: LoanR
     return <Modal title={`Reschedule loan · ${record.id}`} eyebrow={`LOAN RESCHEDULE / ${record.customerName}`} onClose={onClose} wide>
         <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
             <p className="form-note full-field">Re-amortises the remaining balance of {record.customerName} ({record.customerId}) over a new term. The backend keeps the previous schedule and records the change, the new terms and the reason as a restructure event.</p>
-            <label>Effective from<input type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} aria-label="Effective from" /></label>
-            <label>New tenure (months)<input type="number" min={1} max={240} value={newTenureMonths} onChange={(event) => setNewTenureMonths(event.target.value)} aria-label="New tenure in months" /></label>
-            <label>New interest rate (% p.a.)<input type="number" min={BUSINESS_RULES.MIN_INTEREST_RATE} max={BUSINESS_RULES.MAX_INTEREST_RATE} step="0.01" value={newInterestRate} onChange={(event) => setNewInterestRate(event.target.value)} aria-label="New interest rate" /></label>
-            <label>Reschedule reason (minimum 3 characters)<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} aria-label="Reschedule reason" /></label>
+            <label><span>Effective from <Req /></span><input type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} aria-label="Effective from" /></label>
+            <label><span>New tenure (months) <Req /></span><input type="number" min={1} max={240} value={newTenureMonths} onChange={(event) => setNewTenureMonths(event.target.value)} aria-label="New tenure in months" /></label>
+            <label><span>New interest rate (% p.a.) <Req /></span><input type="number" min={BUSINESS_RULES.MIN_INTEREST_RATE} max={BUSINESS_RULES.MAX_INTEREST_RATE} step="0.01" value={newInterestRate} onChange={(event) => setNewInterestRate(event.target.value)} aria-label="New interest rate" /></label>
+            <label><span>Reschedule reason (minimum 3 characters) <Req /></span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} aria-label="Reschedule reason" /></label>
             {error && <p className="form-error full-field">{error}</p>}
             <div className="admin-form-actions full-field">
                 <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
@@ -601,10 +614,10 @@ export function LoanApprovalModal({ record, onClose, onSave }: { record: LoanRec
     return <Modal title={`Approve application · ${record.id}`} eyebrow={`LOAN APPROVAL / ${record.customerName}`} onClose={onClose} wide>
         <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
             <p className="form-note full-field">Recommend and sanction {record.customerName} ({record.customerId}) for the {record.loanType}. The officer recommendation and the President / M.D. approval are both recorded on the backend.</p>
-            <label>Requested amount<input value={formatCurrency(record.principal)} readOnly aria-readonly="true" /></label>
-            <label>Approved amount<input value={approvedAmount} onChange={(event) => setApprovedAmount(event.target.value)} inputMode="decimal" aria-label="Approved amount" /></label>
-            <label>Approved tenure (months)<input type="number" min={1} max={240} value={approvedTenure} onChange={(event) => setApprovedTenure(event.target.value)} aria-label="Approved tenure in months" /></label>
-            <label>Final interest rate (% p.a.)<input type="number" min={BUSINESS_RULES.MIN_INTEREST_RATE} max={BUSINESS_RULES.MAX_INTEREST_RATE} step="0.01" value={finalRate} onChange={(event) => setFinalRate(event.target.value)} aria-label="Final interest rate" /></label>
+            <label><span>Requested amount</span><input value={formatCurrency(record.principal)} readOnly aria-readonly="true" /></label>
+            <label><span>Approved amount <Req /></span><input value={approvedAmount} onChange={(event) => setApprovedAmount(event.target.value)} inputMode="decimal" aria-label="Approved amount" /></label>
+            <label><span>Approved tenure (months) <Req /></span><input type="number" min={1} max={240} value={approvedTenure} onChange={(event) => setApprovedTenure(event.target.value)} aria-label="Approved tenure in months" /></label>
+            <label><span>Final interest rate (% p.a.) <Req /></span><input type="number" min={BUSINESS_RULES.MIN_INTEREST_RATE} max={BUSINESS_RULES.MAX_INTEREST_RATE} step="0.01" value={finalRate} onChange={(event) => setFinalRate(event.target.value)} aria-label="Final interest rate" /></label>
             {error && <p className="form-error full-field">{error}</p>}
             <div className="admin-form-actions full-field">
                 <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
@@ -614,10 +627,40 @@ export function LoanApprovalModal({ record, onClose, onSave }: { record: LoanRec
     </Modal>;
 }
 
+export function LoanDisburseModal({ record, onClose, onSave }: { record: LoanRecord; onClose: () => void; onSave: (disbursedOn?: string) => Promise<void> }) {
+    const [disbursedOn, setDisbursedOn] = useState(record.loanDate ? record.loanDate.slice(0, 10) : new Date().toISOString().slice(0, 10));
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+    const submit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (saving) return;
+        setSaving(true);
+        try {
+            await onSave(disbursedOn || undefined);
+        } catch (err) {
+            setError(messageFor(err, 'Unable to disburse the loan.'));
+        } finally {
+            setSaving(false);
+        }
+    };
+    return <Modal title={`Disburse loan · ${record.id}`} eyebrow={`LOAN DISBURSEMENT / ${record.customerName}`} onClose={onClose}>
+        <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
+            <p className="form-note full-field">Disbursing creates the active loan account and schedules instalments from the disbursement date. For backdated/historical entries, pick the original disbursement date.</p>
+            <label className="full-field"><span>Disbursement date <Req /></span><input type="date" value={disbursedOn} onChange={(event) => setDisbursedOn(event.target.value)} required /></label>
+            {error && <p className="form-error full-field">{error}</p>}
+            <div className="admin-form-actions full-field">
+                <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button>
+                <button type="submit" className="primary-button" disabled={saving}>{saving ? <Loader2 size={15} className="spin" /> : null}{saving ? 'Disbursing…' : 'Confirm disbursement'}</button>
+            </div>
+        </form>
+    </Modal>;
+}
+
 export function LoanDetail({ record, onClose, onCollection, onLifecycle, onApprove }: { record: LoanRecord; onClose: () => void; onCollection: () => void; onLifecycle: (lifecycle: LoanLifecycle, status: Status, input?: LoanLifecycleInput) => void; onApprove: (input: ApproveLoanInput) => Promise<void>; onToast: (message: string) => void }) {
     const { can, hasRole } = useAuth();
     const [statementOpen, setStatementOpen] = useState(false);
     const [approvalOpen, setApprovalOpen] = useState(false);
+    const [disburseOpen, setDisburseOpen] = useState(false);
     const [rescheduleOpen, setRescheduleOpen] = useState(false);
     const [lifecycleDialog, setLifecycleDialog] = useState<'Settled' | 'Written off' | null>(null);
     const pending = record.installments.filter((item) => item.status !== 'Paid').length;
@@ -644,11 +687,12 @@ export function LoanDetail({ record, onClose, onCollection, onLifecycle, onAppro
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Borrower and security</h3><p>Underwriting evidence, guarantor details and collateral custody fields.</p></div></div><div className="customer-detail-grid loan-detail-grid"><div><span>Income source</span><strong>{record.incomeSource || 'Not captured'}{record.monthlyIncome ? ` · ₹${record.monthlyIncome.toLocaleString('en-IN')} / month` : ''}</strong></div><div><span>Guarantor</span><strong>{record.guarantorName || 'Not captured'}{record.guarantorPhone ? ` · ${record.guarantorPhone}` : ''}</strong></div><div><span>Collateral</span><strong>{record.collateralDescription || 'Not captured'}</strong></div><div><span>Collateral value / LTV</span><strong>{record.collateralValue ? `₹${record.collateralValue.toLocaleString('en-IN')}` : 'Not captured'} · {record.collateralLtv ?? 0}%</strong></div></div></section>
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Repayment schedule and allocation history</h3><p>Each receipt is allocated across principal, interest, penalty and fees.</p></div><span>{record.installments.length} entries</span></div>{record.installments.length ? <div className="customer-transaction-list">{record.installments.map((item) => <div className="customer-transaction-row" key={item.id}><div><strong>{item.id} · {item.status}</strong><span>Due {item.dueDate}{item.paidDate ? ` · Paid ${item.paidDate}` : ''}</span></div><div><b>₹{item.amount.toLocaleString('en-IN')}</b><small>Principal ₹{item.principal.toLocaleString('en-IN')} · Interest ₹{item.interest.toLocaleString('en-IN')} · Penalty ₹{(item.penalty ?? 0).toLocaleString('en-IN')}{item.fees ? ` · Fees ₹${item.fees.toLocaleString('en-IN')}` : ''} · Paid ₹{(item.paidAmount ?? 0).toLocaleString('en-IN')}{item.paidMethod ? ` · ${item.paidMethod}` : ''}{item.reference ? ` · ${item.reference}` : ''}{item.agent ? ` · ${item.agent}` : ''}</small></div><StatusPill status={item.status === 'Paid' ? 'Completed' : item.status === 'Overdue' ? 'Overdue' : 'Pending'} /></div>)}</div> : <p className="empty-state">No schedule entries recorded on the backend yet.</p>}</section>
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Lifecycle and audit trail</h3><p>Approval, disbursement, delinquency, restructuring and closure events.</p></div><span>{record.events.length} events</span></div>{record.events.length ? <div className="customer-transaction-list">{record.events.map((event) => <div className="customer-transaction-row" key={event.id}><div><strong>{event.type}</strong><span>{event.date} · {event.actor}</span></div><div><b>{event.reference}</b><small>{event.note}</small></div></div>)}</div> : <p className="empty-state">No lifecycle or audit events recorded on the backend yet.</p>}</section>
-                <div className="loan-detail-actions customer-detail-actions"><button className="secondary-button" onClick={() => setStatementOpen(true)}>View statement</button>{canApproveStage && roleCanApprove && <button className="secondary-button" onClick={() => setApprovalOpen(true)}>Approve</button>}{canDisburseStage && roleCanWriteLoan && <button className="secondary-button" onClick={() => onLifecycle('Active', 'Active')}>Disburse</button>}{record.loanId && isOpenLoan && roleCanComplete && <button className="secondary-button" onClick={() => setRescheduleOpen(true)}>Reschedule</button>}{record.outstandingAmount === 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Settled')}>Settle</button>}{record.outstandingAmount > 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Written off')}>Write off</button>}{roleCanWriteLoan && <button className="primary-button" onClick={onCollection}><Plus size={15} /> Record installment</button>}</div>
+                <div className="loan-detail-actions customer-detail-actions"><button className="secondary-button" onClick={() => setStatementOpen(true)}>View statement</button>{canApproveStage && roleCanApprove && <button className="secondary-button" onClick={() => setApprovalOpen(true)}>Approve</button>}{canDisburseStage && roleCanWriteLoan && <button className="secondary-button" onClick={() => setDisburseOpen(true)}>Disburse</button>}{record.loanId && isOpenLoan && roleCanComplete && <button className="secondary-button" onClick={() => setRescheduleOpen(true)}>Reschedule</button>}{record.outstandingAmount === 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Settled')}>Settle</button>}{record.outstandingAmount > 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Written off')}>Write off</button>}{roleCanWriteLoan && <button className="primary-button" onClick={onCollection}><Plus size={15} /> Record installment</button>}</div>
             </section>
         </div>
         {statementOpen && <LoanStatementModal record={record} onClose={() => setStatementOpen(false)} />}
         {approvalOpen && <LoanApprovalModal record={record} onClose={() => setApprovalOpen(false)} onSave={async (input) => { await onApprove(input); setApprovalOpen(false); }} />}
+        {disburseOpen && <LoanDisburseModal record={record} onClose={() => setDisburseOpen(false)} onSave={async (disbursedOn) => { onLifecycle('Active', 'Active', { effectiveFrom: disbursedOn }); setDisburseOpen(false); }} />}
         {rescheduleOpen && <LoanRescheduleModal record={record} onClose={() => setRescheduleOpen(false)} onSave={async (input) => { await onLifecycle('Rescheduled', 'Review', input); setRescheduleOpen(false); }} />}
         {lifecycleDialog && <LoanLifecycleModal record={record} kind={lifecycleDialog} onClose={() => setLifecycleDialog(null)} onSave={async (input) => { await onLifecycle(lifecycleDialog, lifecycleDialog === 'Written off' ? 'Inactive' : 'Completed', input); setLifecycleDialog(null); }} />}
     </>;
@@ -781,7 +825,7 @@ export function LoansPage() {
             const loanId = selected.loanId;
             if (lifecycle === 'Active') {
                 if (!applicationId) throw new Error('This record has no backend application to disburse.');
-                await loansRepository.disburse(applicationId);
+                await loansRepository.disburse(applicationId, input?.effectiveFrom);
             } else if (lifecycle === 'Rescheduled') {
                 if (!loanId) throw new Error('This record has no backend loan account.');
                 if (!input?.reason) throw new Error('A reschedule reason is required.');

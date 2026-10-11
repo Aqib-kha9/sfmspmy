@@ -6,6 +6,7 @@ import { reportsRepository, type ReportGenerateInput } from '../services/operati
 import { messageFor } from '../services/operations/helpers';
 import { type Status, StatusPill } from '../components/adminShared';
 import { AgentOptions, BranchOptions, CustomerOptions, AccountOptions } from '../components/backendOptions';
+import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
 
 export type ReportRecord = {
     id: string;
@@ -68,18 +69,19 @@ function GenerateReportModal({ report, onClose, onGenerate }: { report: ReportRe
                     <button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button>
                 </div>
                 <form className="form-grid customer-form" onSubmit={(e) => void submit(e)}>
+                    <FormLegend />
                     <label className="full-field">
-                        From date
+                        <span>From date <Req /></span>
                         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} required />
                     </label>
                     <label className="full-field">
-                        To date
+                        <span>To date <Req /></span>
                         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} required />
                     </label>
                     
                     {report.availableFilters?.includes('branch_id') && (
                         <label className="full-field">
-                            Branch
+                            <span>Branch <Opt /></span>
                             <select value={branch} onChange={(e) => setBranch(e.target.value)}>
                                 <option value="">All branches</option>
                                 <BranchOptions />
@@ -88,7 +90,7 @@ function GenerateReportModal({ report, onClose, onGenerate }: { report: ReportRe
                     )}
                     {report.availableFilters?.includes('agent_id') && (
                         <label className="full-field">
-                            Collection agent
+                            <span>Collection agent <Opt /></span>
                             <select value={agent} onChange={(e) => setAgent(e.target.value)}>
                                 <option value="">All agents</option>
                                 <AgentOptions />
@@ -97,7 +99,7 @@ function GenerateReportModal({ report, onClose, onGenerate }: { report: ReportRe
                     )}
                     {report.availableFilters?.includes('customer_id') && (
                         <label className="full-field">
-                            Customer ID
+                            <span>Customer ID <Opt /></span>
                             <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
                                 <option value="">Select a customer</option>
                                 <CustomerOptions />
@@ -106,7 +108,7 @@ function GenerateReportModal({ report, onClose, onGenerate }: { report: ReportRe
                     )}
                     {report.availableFilters?.includes('account_id') && (
                         <label className="full-field">
-                            Account ID
+                            <span>Account ID <Opt /></span>
                             <select value={accountId} onChange={(e) => setAccountId(e.target.value)} disabled={!customerId}>
                                 <AccountOptions customerId={customerId} />
                             </select>
@@ -114,7 +116,7 @@ function GenerateReportModal({ report, onClose, onGenerate }: { report: ReportRe
                     )}
                     {report.availableFilters?.includes('status') && (
                         <label className="full-field">
-                            Status filter
+                            <span>Status filter <Opt /></span>
                             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                                 <option value="">All statuses</option>
                                 <option value="pending">Pending</option>

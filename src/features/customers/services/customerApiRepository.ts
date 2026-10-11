@@ -250,6 +250,7 @@ function toCreatePayload(input: CustomerInput, branchId: string): CreateCustomer
     if (input.guardianName.trim()) payload.guardianName = input.guardianName.trim();
     if (input.guardianPhone.trim()) payload.guardianPhone = input.guardianPhone.trim();
     if (input.kycMethod.trim()) payload.kycMethod = input.kycMethod.trim();
+    if (input.registrationDate && input.registrationDate.trim()) payload.registrationDate = input.registrationDate.trim();
     return payload;
 }
 
@@ -270,6 +271,7 @@ function toUpdatePayload(input: CustomerInput): UpdateCustomerInput {
     if (input.guardianName.trim()) payload.guardianName = input.guardianName.trim();
     if (input.guardianPhone.trim()) payload.guardianPhone = input.guardianPhone.trim();
     if (input.kycMethod.trim()) payload.kycMethod = input.kycMethod.trim();
+    if (input.registrationDate && input.registrationDate.trim()) payload.registrationDate = input.registrationDate.trim();
     // Send the identity document when one is present so the server can enforce
     // the active-customer uniqueness rule on edit (it excludes this customer's
     // own row, so resubmitting the unchanged document is always accepted).

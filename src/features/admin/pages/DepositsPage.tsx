@@ -10,6 +10,7 @@ import type { Customer as ApiCustomer } from '../../customers/types/customer.typ
 import type { CustomerOption } from '../../customers/services/customerRepository';
 import { messageFor } from '../services/operations/helpers';
 import { Modal } from '../../../components/overlays/Modal';
+import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
 import { formatCurrency } from '../../../lib/formatters/formatters';
 import { useAuth } from '../../auth/AuthContext';
 import { type Status, StatusPill, SummaryStrip } from '../components/adminShared';
@@ -57,14 +58,14 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
     const [products, setProducts] = useState<DepositProduct[]>([]);
     const [productCode, setProductCode] = useState(record?.productCode ?? '');
     const [openingAmount, setOpeningAmount] = useState('');
-    const [openedOn, setOpenedOn] = useState('');
+    const [openedOn, setOpenedOn] = useState(new Date().toISOString().slice(0, 10));
     const [interestRate, setInterestRate] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('cash');
     const [referenceNumber, setReferenceNumber] = useState('');
     const [description, setDescription] = useState('');
     const [transactionType, setTransactionType] = useState<DepositTransaction['type']>('Deposit entry');
     const [amount, setAmount] = useState('');
-    const [date, setDate] = useState('');
+    const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [reference, setReference] = useState('');
     const [narration, setNarration] = useState('');
     const [error, setError] = useState('');
@@ -105,6 +106,17 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
             .catch((reason: unknown) => setCustomerError(messageFor(reason, 'Unable to load the selected customer.')))
             .finally(() => setCustomerLoading(false));
     };
+    const selectProduct = (code: string) => {
+        setProductCode(code);
+        const product = products.find((p) => p.code === code);
+        if (!product) return;
+        setOpeningAmount((current) => {
+            const val = Number(current);
+            if (!Number.isFinite(val) || val <= 0) return String(product.minOpeningAmount);
+            return current;
+        });
+        setInterestRate((current) => current || String(product.interestRate));
+    };
     const selectedProduct = products.find((product) => product.code === productCode);
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         if (saving) return;
@@ -124,26 +136,27 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
     };
     return <Modal title={mode === 'account' ? 'Open deposit account' : `Record entry · ${record?.id ?? ''}`} eyebrow="DEPOSIT WORKFLOW" onClose={onClose} wide>
         <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
+            <FormLegend />
             {mode === 'account' ? <>
-                <label className="full-field">Search customer<input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Search by name, mobile number or customer number..." aria-label="Search customers" /></label>
-                <label className="full-field">Customer<select value={customerId} onChange={(event) => selectCustomer(event.target.value)} aria-label="Select customer"><option value="">{customerLoading ? 'Loading customers...' : 'Select a customer'}</option>{customers.map((option) => <option key={option.id} value={option.id}>{option.name} · {option.customerNumber}</option>)}</select></label>
+                <label className="full-field"><span>Search customer <Opt /></span><input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Search by name, mobile number or customer number..." aria-label="Search customers" /></label>
+                <label className="full-field"><span>Customer <Req /></span><select value={customerId} onChange={(event) => selectCustomer(event.target.value)} aria-label="Select customer"><option value="">{customerLoading ? 'Loading customers...' : 'Select a customer'}</option>{customers.map((option) => <option key={option.id} value={option.id}>{option.name} · {option.customerNumber}</option>)}</select></label>
                 {customerError ? <p className="form-error full-field">{customerError}</p> : null}
                 {customerDetails ? <p className="form-note full-field">Opening against {customerDetails.name} · {customerDetails.phone}{customerDetails.branch ? ` · ${customerDetails.branch}` : null}</p> : null}
-                <label>Product / scheme<select value={productCode} onChange={(event) => setProductCode(event.target.value)} aria-label="Select deposit scheme"><option value="">{products.length ? 'Select a scheme' : 'No active schemes configured'}</option>{products.map((product) => <option key={product.id} value={product.code}>{product.name} · {product.code} · {product.interestRate}%</option>)}</select></label>
-                <label>Opening deposit amount<input type="number" min="1" value={openingAmount} onChange={(event) => setOpeningAmount(event.target.value)} placeholder="5000" /></label>
-                <label>Opening date<input type="date" value={openedOn} onChange={(event) => setOpenedOn(event.target.value)} /></label>
-                <label>Interest rate override (%)<input type="number" min="0.01" max="25" step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} placeholder={selectedProduct ? String(selectedProduct.interestRate) : 'Product default'} /></label>
-                <label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>{depositPaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select></label>
-                <label>Instrument reference<input value={referenceNumber} onChange={(event) => setReferenceNumber(event.target.value)} placeholder="Receipt / UTR / cheque number" /></label>
-                <label className="full-field">Opening narration<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional note stored on the opening ledger entry" /></label>
+                <label><span>Product / scheme <Req /></span><select value={productCode} onChange={(event) => selectProduct(event.target.value)} aria-label="Select deposit scheme"><option value="">{products.length ? 'Select a scheme' : 'No active schemes configured'}</option>{products.map((product) => <option key={product.id} value={product.code}>{product.name} · {product.code} · {product.interestRate}%</option>)}</select></label>
+                <label><span>Opening deposit amount <Req /></span><input type="number" min="1" value={openingAmount} onChange={(event) => setOpeningAmount(event.target.value)} placeholder="5000" /></label>
+                <label><span>Opening date <Opt /></span><input type="date" value={openedOn} onChange={(event) => setOpenedOn(event.target.value)} /></label>
+                <label><span>Interest rate override (%) <Opt /></span><input type="number" min="0.01" max="25" step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} placeholder={selectedProduct ? String(selectedProduct.interestRate) : 'Product default'} /></label>
+                <label><span>Payment method <Req /></span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>{depositPaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select></label>
+                <label><span>Instrument reference <Opt /></span><input value={referenceNumber} onChange={(event) => setReferenceNumber(event.target.value)} placeholder="Receipt / UTR / cheque number" /></label>
+                <label className="full-field"><span>Opening narration <Opt /></span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional note stored on the opening ledger entry" /></label>
                 {selectedProduct ? <p className="form-note full-field">{selectedProduct.name} pays {selectedProduct.interestMethod} interest {selectedProduct.interestFrequency} at {selectedProduct.interestRate}% · minimum balance {formatCurrency(selectedProduct.minBalance)}{selectedProduct.maxBalance !== undefined ? ` · maximum balance ${formatCurrency(selectedProduct.maxBalance)}` : ''}</p> : null}
             </> : <>
-                <label>Transaction type<select value={transactionType} onChange={(event) => setTransactionType(event.target.value as DepositTransaction['type'])}><option>Deposit entry</option><option>Withdrawal</option></select></label>
-                <label>Amount<input type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="5000" /></label>
-                <label>Value date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
-                <label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>{depositPaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select></label>
-                <label>Instrument reference<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Receipt / UTR / cheque number" /></label>
-                <label className="full-field">Narration<textarea value={narration} onChange={(event) => setNarration(event.target.value)} /></label>
+                <label><span>Transaction type <Req /></span><select value={transactionType} onChange={(event) => setTransactionType(event.target.value as DepositTransaction['type'])}><option>Deposit entry</option><option>Withdrawal</option></select></label>
+                <label><span>Amount <Req /></span><input type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="5000" /></label>
+                <label><span>Value date <Opt /></span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+                <label><span>Payment method <Req /></span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>{depositPaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select></label>
+                <label><span>Instrument reference <Opt /></span><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Receipt / UTR / cheque number" /></label>
+                <label className="full-field"><span>Narration <Opt /></span><textarea value={narration} onChange={(event) => setNarration(event.target.value)} /></label>
             </>}
             {error && <p className="form-error full-field">{error}</p>}
             <div className="admin-form-actions full-field">
@@ -183,9 +196,10 @@ export function DepositEditModal({ record, onClose, onSave }: { record: DepositR
     };
     return <Modal title={`Edit account · ${record.id}`} eyebrow="DEPOSIT WORKFLOW" onClose={onClose} wide>
         <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
+            <FormLegend />
             <p className="form-note full-field">Only the booked scheme and the account-level interest rate can change — the backend rejects any other account field. Customer, branch and product limits stay owned by their own records.</p>
-            <label>Product / scheme<select value={productCode} onChange={(event) => setProductCode(event.target.value)} aria-label="Select deposit scheme"><option value={record.productCode ?? ''}>{record.productCode ? `Keep current · ${record.productCode}` : 'Select a scheme'}</option>{products.filter((product) => product.code !== record.productCode).map((product) => <option key={product.id} value={product.code}>{product.name} · {product.code} · {product.interestRate}%</option>)}</select></label>
-            <label>Interest rate override (%)<input type="number" min="0.01" max="25" step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} placeholder="Product default" /></label>
+            <label><span>Product / scheme <Opt /></span><select value={productCode} onChange={(event) => setProductCode(event.target.value)} aria-label="Select deposit scheme"><option value={record.productCode ?? ''}>{record.productCode ? `Keep current · ${record.productCode}` : 'Select a scheme'}</option>{products.filter((product) => product.code !== record.productCode).map((product) => <option key={product.id} value={product.code}>{product.name} · {product.code} · {product.interestRate}%</option>)}</select></label>
+            <label><span>Interest rate override (%) <Opt /></span><input type="number" min="0.01" max="25" step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} placeholder="Product default" /></label>
             {error && <p className="form-error full-field">{error}</p>}
             <div className="admin-form-actions full-field">
                 <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
