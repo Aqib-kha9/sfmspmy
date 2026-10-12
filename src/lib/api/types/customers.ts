@@ -5,6 +5,7 @@
 
 export type CustomerStatus =
     | 'active'
+    | 'pending_approval'
     | 'inactive'
     | 'blocked'
     | 'deceased'

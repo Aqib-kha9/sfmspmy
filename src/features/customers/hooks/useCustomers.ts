@@ -79,6 +79,12 @@ export function useCustomers(query: CustomerQuery = {}) {
         await Promise.all([refresh(), refreshMeta()]);
         return customer;
     };
+    const approve = async (id: string) => {
+        const customer = await customerRepository.approve(id);
+        await Promise.all([refresh(), refreshMeta()]);
+        return customer;
+    };
 
-    return { customers, total, options, stats, loading, error, refresh, refreshMeta, exportCsv, statement, create, update };
+    return { customers, total, options, stats, loading, error, refresh, refreshMeta, exportCsv, statement, create, update, approve };
 }
+

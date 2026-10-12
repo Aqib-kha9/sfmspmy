@@ -40,6 +40,7 @@ import type {
 /** Backend (lowercase) status -> admin UI (Title-case) status. */
 const STATUS_FROM_API: Record<CustomerStatus, Status> = {
     active: 'Active',
+    pending_approval: 'Pending',
     inactive: 'Inactive',
     blocked: 'Review',
     deceased: 'Inactive',
@@ -51,11 +52,10 @@ const STATUS_FROM_API: Record<CustomerStatus, Status> = {
 
 /**
  * Admin UI status filter -> backend status filter.
- * `Pending`/`Review` have no backend counterpart in the current vocabulary, so
- * they are left unfiltered server-side and narrowed client-side by the page.
  */
 const STATUS_TO_API: Partial<Record<Status, CustomerStatus>> = {
     Active: 'active',
+    Pending: 'pending_approval',
     Inactive: 'inactive',
     Review: 'restricted',
 };
@@ -503,7 +503,8 @@ export class ApiCustomerRepository implements CustomerRepository {
             if (input.assignedAgent && input.assignedAgent !== 'Unassigned') {
                 try {
                     const agents = await agentsRepository.list();
-                    const agent = agents.find((a) => a.name === input.assignedAgent);
+                    const trimmed = input.assignedAgent.trim();
+                    const agent = agents.find((a) => a.name === trimmed || a.employeeCode === trimmed || a.id === trimmed);
                     if (agent) {
                         await agentsRepository.assignCustomers(agent.id, [created.id]);
                     }
@@ -622,6 +623,18 @@ export class ApiCustomerRepository implements CustomerRepository {
             return toCustomer(finalRefresh, finalRefresh);
         } catch (error) {
             throw new Error(messageFor(error, 'Unable to update the customer.'));
+        }
+    }
+
+    async approve(id: string): Promise<Customer> {
+        const customerId = await this.resolveCustomerId(id);
+        try {
+            const approved = await apiClient.request<CustomerDetailView>(`/customers/${customerId}/approve`, {
+                method: 'POST',
+            });
+            return toCustomer(approved, approved);
+        } catch (error) {
+            throw new Error(messageFor(error, 'Unable to approve the customer.'));
         }
     }
 }

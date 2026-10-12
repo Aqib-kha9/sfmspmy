@@ -37,9 +37,10 @@ function useDebounced<T>(value: T, delay: number): T {
 }
 
 export function CustomersPage() {
-    const { can } = useAuth();
+    const { can, profile } = useAuth();
     const canWrite = can('customers.write');
     const canExport = can('customers.export');
+    const canApprove = Boolean(profile && ['super_admin', 'managing_director', 'president', 'vice_president', 'manager'].includes(profile.role));
     const { message, notify } = useToast();
 
     const [search, setSearch] = useState('');
@@ -72,7 +73,7 @@ export function CustomersPage() {
         offset: (page - 1) * pageSize,
     }), [debouncedSearch, status, accountType, customerType, customerId, appliedRange, page]);
 
-    const { customers, total, options, stats, loading, error, exportCsv, statement, create, update } = useCustomers(query);
+    const { customers, total, options, stats, loading, error, exportCsv, statement, create, update, approve } = useCustomers(query);
 
     const pages = Math.max(1, Math.ceil(total / pageSize));
     const showingFrom = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -103,6 +104,18 @@ export function CustomersPage() {
         setSearch(''); setStatus('All'); setAccountType('All'); setCustomerType('All'); setCustomerId('');
         setRegisteredFrom(''); setRegisteredTo(''); setAppliedRange(null); setShowFilters(false); setShowDateRange(false);
         setPage(1);
+    };
+
+    const handleApprove = async (customer: Customer) => {
+        try {
+            await approve(customer.systemId || customer.id);
+            notify(`Customer ${customer.name} approved and activated.`);
+            if (selected?.id === customer.id) {
+                close();
+            }
+        } catch (reason) {
+            notify(reason instanceof Error ? reason.message : 'Unable to approve customer.');
+        }
     };
 
     const save = async (input: CustomerInput) => {
@@ -200,12 +213,12 @@ export function CustomersPage() {
             {loading && customers.length === 0 ? <div className="empty-state"><strong>Loading customer records</strong><span>Fetching customers from the server.</span></div>
                 : error ? <div className="empty-state"><strong>{error}</strong><span>Refresh the page to retry the server request.</span></div>
                     : customers.length === 0 ? <div className="empty-state"><strong>No customers match these filters</strong><span>{filtersActive ? 'Adjust or clear the filters to widen the search.' : 'Register a customer to see it listed here.'}</span></div>
-                        : <CustomerTable rows={customers} onDetail={(customer) => { setSelected(customer); setModal('detail'); }} onEdit={canWrite ? (customer) => { setSelected(customer); setModal('edit'); } : undefined} />}
+                        : <CustomerTable rows={customers} onDetail={(customer) => { setSelected(customer); setModal('detail'); }} onEdit={canWrite ? (customer) => { setSelected(customer); setModal('edit'); } : undefined} onApprove={canApprove ? handleApprove : undefined} />}
             <div className="pagination"><span>Showing {showingFrom}–{showingTo} of {total}</span><div><button type="button" className="secondary-button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button><button type="button" className="secondary-button" disabled={page >= pages} onClick={() => setPage((current) => Math.min(pages, current + 1))}>Next</button></div></div>
         </section>
         {modal === 'add' && <CustomerFormModal onClose={close} onSave={save} />}
         {modal === 'edit' && canWrite && selected && <CustomerFormModal customer={selected} onClose={close} onSave={save} />}
-        {modal === 'detail' && selected && <CustomerDetailModal customer={selected} onClose={close} onEdit={() => setModal('edit')} onViewStatement={() => setModal('statement')} />}
+        {modal === 'detail' && selected && <CustomerDetailModal customer={selected} onClose={close} onEdit={() => setModal('edit')} onViewStatement={() => setModal('statement')} onApprove={canApprove ? () => void handleApprove(selected) : undefined} />}
         {modal === 'statement' && selected && <CustomerStatementModal customerId={selected.systemId} customerName={selected.name} onClose={() => setModal('detail')} loadStatement={statement} />}
         <Toast message={message} />
     </div>;

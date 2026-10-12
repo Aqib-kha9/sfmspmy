@@ -90,7 +90,7 @@ export const rolePermissions: Record<StaffRole, Permission[]> = {
         'security.read', 'settings.read',
     ],
     cashier: [
-        'customers.read', 'deposits.read', 'deposits.write',
+        'customers.read', 'customers.write', 'deposits.read', 'deposits.write',
         'withdrawals.read', 'withdrawals.create',
         'collections.read', 'collections.write',
         'reconciliation.read', 'reconciliation.write',

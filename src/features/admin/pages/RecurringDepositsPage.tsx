@@ -72,6 +72,7 @@ export type RDCollectionInput = Pick<RDInstallment, 'amount' | 'dueDate' | 'agen
 
 /** First RD due date: next occurrence of the due day on/after the opening date. */
 export function firstRdDueDate(openedOn: string, dueDay: string): string {
+    if (!dueDay || dueDay.toLowerCase() === 'daily') return openedOn;
     const base = parseYmd(openedOn) ?? new Date();
     const day = Number.parseInt(dueDay, 10);
     const safe = Number.isFinite(day) && day >= 1 && day <= 31 ? day : 1;
@@ -79,6 +80,7 @@ export function firstRdDueDate(openedOn: string, dueDay: string): string {
     if (candidate <= base) candidate.setMonth(candidate.getMonth() + 1);
     return toYmd(candidate);
 }
+
 
 /** Steps one instalment interval at the given frequency (backend parity). */
 export function nextRdDueDate(value: string, frequency: RDRecord['frequency']): string {
@@ -208,13 +210,23 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
         setProductCode(code);
         const scheme = schemes.find((item) => item.code === code);
         if (!scheme) return;
-        setFrequency(scheme.frequency === 'daily' ? 'Daily' : scheme.frequency === 'weekly' ? 'Weekly' : scheme.frequency === 'quarterly' ? 'Quarterly' : 'Monthly');
+        const isDaily = scheme.frequency === 'daily' || scheme.code === 'RD-DLY';
+        const freq = isDaily ? 'Daily' : scheme.frequency === 'weekly' ? 'Weekly' : scheme.frequency === 'quarterly' ? 'Quarterly' : 'Monthly';
+        setFrequency(freq);
         setInterestRate(scheme.interestRate ? String(Number(scheme.interestRate)) : '');
-        setTenureMonths((current) => {
-            const value = Number(current);
-            const inRange = Number.isFinite(value) && value >= scheme.minDurationMonths && value <= scheme.maxDurationMonths;
-            return inRange ? current : String(scheme.minDurationMonths);
-        });
+        if (isDaily) {
+            setDueDay('Daily');
+            setTenureMonths('6');
+            setInstallmentCount('180');
+            const derivedMaturity = addDaysYmd(openedOn, 181);
+            setMaturityDate(derivedMaturity);
+        } else {
+            setTenureMonths((current) => {
+                const value = Number(current);
+                const inRange = Number.isFinite(value) && value >= scheme.minDurationMonths && value <= scheme.maxDurationMonths;
+                return inRange ? current : String(scheme.minDurationMonths);
+            });
+        }
         setAmount((current) => {
             const value = Number(current);
             if (!Number.isFinite(value) || value <= 0) return String(scheme.minInstalmentAmount);
@@ -233,14 +245,15 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
     const amountAboveMax = Boolean(
         selectedScheme && amount && Number.isFinite(amountNumber) && schemeMaxInstalment !== undefined && amountNumber > schemeMaxInstalment,
     );
-    const effectiveDueDay = mode === 'account' ? dueDay || '1' : dueDay;
-    const firstDuePreview = mode === 'account' ? firstRdDueDate(openedOn, effectiveDueDay) : '';
+    const isDailySelected = frequency === 'Daily' || selectedScheme?.frequency === 'daily' || selectedScheme?.code === 'RD-DLY';
+    const effectiveDueDay = mode === 'account' ? (isDailySelected ? 'Daily' : (dueDay || '1')) : dueDay;
+    const firstDuePreview = mode === 'account' ? (isDailySelected ? openedOn : firstRdDueDate(openedOn, effectiveDueDay)) : '';
     const schedulePreview = mode === 'account' && firstDuePreview && maturityDate && openedOn
         ? rdInstalmentDates(firstDuePreview, maturityDate, frequency)
         : [];
     const tenurePreview = mode === 'account' && firstDuePreview && maturityDate ? monthsBetweenYmd(firstDuePreview, maturityDate) : 0;
     const termOutOfRange = Boolean(
-        selectedScheme && tenurePreview > 0 && (tenurePreview < selectedScheme.minDurationMonths || tenurePreview > selectedScheme.maxDurationMonths),
+        selectedScheme && !isDailySelected && tenurePreview > 0 && (tenurePreview < selectedScheme.minDurationMonths || tenurePreview > selectedScheme.maxDurationMonths),
     );
     // Auto-derives the maturity date, tenure and instalment count whenever the
     // opening date, due day, frequency, term or scheme changes. The operator only
@@ -250,6 +263,15 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
         if (mode !== 'account') return;
         if (!openedOn) return;
         const scheme = schemes.find((item) => item.code === productCode);
+        const isDaily = frequency === 'Daily' || scheme?.frequency === 'daily' || scheme?.code === 'RD-DLY';
+        if (isDaily) {
+            const derivedMaturity = addDaysYmd(openedOn, 181);
+            setMaturityDate((current) => (current === derivedMaturity ? current : derivedMaturity));
+            setTenureMonths((current) => (current === '6' ? current : '6'));
+            setInstallmentCount((current) => (current === '180' ? current : '180'));
+            setDueDay((current) => (current === 'Daily' ? current : 'Daily'));
+            return;
+        }
         const derivedFirstDue = firstRdDueDate(openedOn, effectiveDueDay);
         let term = Number(tenureMonths);
         if (scheme && (!Number.isFinite(term) || term < scheme.minDurationMonths || term > scheme.maxDurationMonths)) {
@@ -262,6 +284,7 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
         setMaturityDate((current) => (current === derivedMaturity ? current : derivedMaturity));
         setInstallmentCount((current) => (String(dates.length) === current ? current : String(dates.length)));
     }, [mode, openedOn, effectiveDueDay, frequency, tenureMonths, productCode, schemes]);
+
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         if (saving) return;
         setSaving(true);
@@ -273,7 +296,13 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
                 if (amountAboveMax) { setError(`Installment amount exceeds the scheme maximum of ${formatCurrency(schemeMaxInstalment ?? 0)}.`); return; }
                 if (termOutOfRange) { setError(`Selected term (${tenurePreview} months) falls outside the scheme window of ${selectedScheme.minDurationMonths}-${selectedScheme.maxDurationMonths} months.`); return; }
             }
-            if (mode === 'account') { if (!customerId.trim() || !openedOn || !maturityDate) { setError('Customer mapping and account dates are required.'); return; } const scheduleDates = rdInstalmentDates(firstDuePreview, maturityDate, frequency); await onSave({ customerId: customerId.trim(), monthlyAmount: Number(amount), frequency, installmentDueDate: effectiveDueDay, openedOn, maturityDate, status, productCode: productCode || undefined, branch: branch || undefined, tenureMonths: tenureMonths ? Number(tenureMonths) : undefined, installmentCount: scheduleDates.length || (installmentCount ? Number(installmentCount) : undefined), interestMethod, interestRate: interestRate ? Number(interestRate) : undefined, penaltyTerms: penaltyTerms || undefined, maturityInstructions, nomineeName: nomineeName || undefined, nomineePhone: nomineePhone || undefined, nomineeRelation: nomineeRelation || undefined, openingChannel, documentReferences: documentReferences || undefined }); return; }
+            if (mode === 'account') {
+                if (!customerId.trim() || !openedOn || !maturityDate) { setError('Customer mapping and account dates are required.'); return; }
+                const scheduleDates = rdInstalmentDates(firstDuePreview, maturityDate, frequency);
+                const count = isDailySelected ? 180 : (scheduleDates.length || (installmentCount ? Number(installmentCount) : undefined));
+                await onSave({ customerId: customerId.trim(), monthlyAmount: Number(amount), frequency, installmentDueDate: effectiveDueDay, openedOn, maturityDate, status, productCode: productCode || undefined, branch: branch || undefined, tenureMonths: tenureMonths ? Number(tenureMonths) : undefined, installmentCount: count, interestMethod, interestRate: interestRate ? Number(interestRate) : undefined, penaltyTerms: penaltyTerms || undefined, maturityInstructions, nomineeName: nomineeName || undefined, nomineePhone: nomineePhone || undefined, nomineeRelation: nomineeRelation || undefined, openingChannel, documentReferences: documentReferences || undefined });
+                return;
+            }
             if (!record || !reference.trim()) { setError('Receipt reference is required for collection entry.'); return; }
             await onSave({ amount: Number(amount), dueDate: dueDay, paidDate: paidDate || undefined, agent, reference: reference.trim(), paymentMethod, externalReference, location, deviceReference, offlineSyncReference, supportingDocuments: collectionDocuments, recordedBy: agent });
         } finally { setSaving(false); }
