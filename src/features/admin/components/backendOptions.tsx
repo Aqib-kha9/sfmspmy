@@ -8,22 +8,33 @@ export let agentNameCache: string[] | null = null;
 
 export let agentNameRequest: Promise<string[]> | null = null;
 
+export function clearBackendOptionsCache(): void {
+    agentNameCache = null;
+    agentNameRequest = null;
+    branchNameCache = null;
+    branchNameRequest = null;
+}
+
 export function loadAgentNames(): Promise<string[]> {
-    if (agentNameCache) return Promise.resolve(agentNameCache);
+    if (agentNameCache && agentNameCache.length > 0) return Promise.resolve(agentNameCache);
     if (!agentNameRequest) {
         agentNameRequest = agentsRepository
             .list()
             .then((rows) => {
-                agentNameCache = rows.map((row) => row.name).filter((name) => name.trim().length > 0);
-                return agentNameCache;
+                const names = rows.map((row) => row.name).filter((name) => name.trim().length > 0);
+                agentNameCache = names;
+                agentNameRequest = null;
+                return names;
             })
             .catch(() => {
                 agentNameRequest = null;
+                agentNameCache = null;
                 return [] as string[];
             });
     }
     return agentNameRequest;
 }
+
 
 /** Backend-driven collection agent options. No hard-coded staff names. */
 export function AgentOptions() {

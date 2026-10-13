@@ -10,6 +10,8 @@ import {
     logout as logoutRequest,
     refreshProfile,
 } from './auth.service';
+import { clearBackendOptionsCache } from '../admin/components/backendOptions';
+
 
 interface AuthContextValue {
     profile: StaffProfile | null;
@@ -65,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const login = useCallback(async (staffCode: string, password: string) => {
+        clearBackendOptionsCache();
         const next = await loginRequest({ staffCode, password });
         setSessionNotice(null);
         setProfile(next);
@@ -72,10 +75,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const logout = useCallback(async () => {
+        clearBackendOptionsCache();
         await logoutRequest();
         setSessionNotice(null);
         setProfile(null);
     }, []);
+
 
     const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
         await changePasswordRequest(currentPassword, newPassword);

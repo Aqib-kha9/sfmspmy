@@ -94,14 +94,15 @@ export const rolePermissions: Record<StaffRole, Permission[]> = {
         'withdrawals.read', 'withdrawals.create',
         'collections.read', 'collections.write',
         'reconciliation.read', 'reconciliation.write',
-        'reports.read',
+        'reports.read', 'agents.read',
     ],
     clerk: [
         'customers.read', 'customers.write',
         'deposits.read', 'deposits.write',
         'loans.read', 'withdrawals.read', 'withdrawals.create',
-        'collections.read', 'reports.read',
+        'collections.read', 'reports.read', 'agents.read',
     ],
+
     collection_agent: [
         'customers.read', 'collections.read', 'collections.write', 'reconciliation.read',
     ],
