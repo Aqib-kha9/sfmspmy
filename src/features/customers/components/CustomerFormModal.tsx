@@ -101,6 +101,15 @@ export function CustomerFormModal({ customer, onClose, onSave }: { customer?: Cu
             setSaving(false);
         }
     };
+    const toggleAgent = (name: string) => {
+        const currentList = form.assignedAgent && form.assignedAgent !== 'Unassigned'
+            ? form.assignedAgent.split(',').map((s) => s.trim()).filter(Boolean)
+            : [];
+        const nextList = currentList.includes(name)
+            ? currentList.filter((item) => item !== name)
+            : [...currentList, name];
+        set('assignedAgent', nextList.length > 0 ? nextList.join(', ') : 'Unassigned');
+    };
     return <Modal title={customer ? 'Edit customer profile' : 'Add customer profile'} eyebrow="CUSTOMER WORKFLOW" onClose={onClose} wide><form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
         <FormLegend />
         <label><span>Legal / full name <Req /></span><input value={form.name} onChange={(event) => set('name', event.target.value)} /></label>
@@ -123,7 +132,27 @@ export function CustomerFormModal({ customer, onClose, onSave }: { customer?: Cu
         <label><span>Communication preference <Opt /></span><select value={form.communicationPreference} onChange={(event) => set('communicationPreference', event.target.value)}><option>SMS</option><option>WhatsApp</option><option>Email</option><option>Phone</option><option>Do not contact</option></select></label>
         <label><span>Branch <Opt /></span><select value={form.branch} onChange={(event) => set('branch', event.target.value)}><option value="">Select branch</option>{branchNames.map((name) => <option key={name}>{name}</option>)}</select></label>
         <label><span>Registration date <Req /></span><input type="date" value={form.registrationDate} onChange={(event) => set('registrationDate', event.target.value)} /></label>
-        <label><span>Assigned collection agent <Opt /></span><select value={form.assignedAgent} onChange={(event) => set('assignedAgent', event.target.value)}><option value="">Unassigned</option>{agentNames.map((name) => <option key={name}>{name}</option>)}</select></label>
+        <div className="full-field">
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--ink)' }}>Assigned collection agents <Opt /></span>
+            <div className="agent-assignment-list" style={{ maxHeight: '130px', overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px', padding: '10px', border: '1px solid var(--line)', borderRadius: '6px', background: '#fdfbfc', marginTop: '4px' }}>
+                {agentNames.map((name) => {
+                    const isSelected = form.assignedAgent && form.assignedAgent !== 'Unassigned'
+                        ? form.assignedAgent.split(',').map((s) => s.trim()).includes(name)
+                        : false;
+                    return (
+                        <label key={name} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleAgent(name)}
+                            />
+                            <span>{name}</span>
+                        </label>
+                    );
+                })}
+                {agentNames.length === 0 && <span style={{ color: 'var(--muted)', fontSize: '12px' }}>No agents available</span>}
+            </div>
+        </div>
         <label className="full-field"><span>Current / registered address <Req /></span><textarea value={form.address} onChange={(event) => set('address', event.target.value)} /></label>
         <label className="full-field"><span>Permanent address <Opt /></span><textarea value={form.permanentAddress} onChange={(event) => set('permanentAddress', event.target.value)} /></label>
         <label><span>Nominee full name <Req /></span><input value={form.nomineeName} onChange={(event) => set('nomineeName', event.target.value)} /></label>

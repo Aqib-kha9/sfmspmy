@@ -1,8 +1,8 @@
 // OPERATIONS / Loans.
 
 import { Pagination } from '../../../components/ui/Pagination';
-import { FormEvent, useEffect, useState } from 'react';
-import { ArrowUpRight, CalendarDays, CheckCircle2, Download, Filter, Loader2, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ArrowUpRight, CalendarDays, CheckCircle2, Download, FileText, Filter, Loader2, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { loansRepository } from '../services/operations/loansApiRepository';
 import type { LoanInput as LoanRepoInput, LoanRepaymentInput as LoanRepoRepaymentInput, LoanProductView } from '../services/operations/loansApiRepository';
 import type { ApproveLoanInput, LoanPaymentMethod, RescheduleLoanInput, SettleLoanInput, WriteOffLoanInput } from '../../../lib/api/types';
@@ -17,6 +17,8 @@ import { useAuth } from '../../auth/AuthContext';
 import { BUSINESS_RULES } from '../../../lib/permissions/permissions';
 import { type Status, StatusPill, SummaryStrip } from '../components/adminShared';
 import { addMonthsYmd, addDaysYmd } from '../components/adminDateUtils';
+import { TransactionReceiptModal, type ReceiptData } from '../components/TransactionReceiptModal';
+import { AccountStatementModal, type StatementEntry, type StatementAccountMeta } from '../components/AccountStatementModal';
 
 export type LoanInstallment = {
     id: string;
@@ -268,11 +270,38 @@ export function LoanModal({ mode, record, onClose, onSave }: { mode: 'account' |
     // Mirrors the backend repayment maths so the operator sees the projected installment.
     const projectedInstallment = (() => {
         if (!Number.isFinite(principalNumber) || principalNumber <= 0 || !Number.isFinite(tenureNumber) || tenureNumber <= 0) return 0;
-        if (interestMethod === 'Flat') return Math.round((principalNumber + (principalNumber * rateNumber * tenureNumber) / 1200) / tenureNumber);
-        const monthlyRate = rateNumber / 1200;
-        if (!Number.isFinite(monthlyRate) || monthlyRate <= 0) return Math.round(principalNumber / tenureNumber);
-        const factor = Math.pow(1 + monthlyRate, tenureNumber);
-        return Math.round((principalNumber * monthlyRate * factor) / (factor - 1));
+        
+        let totalInstallments = tenureNumber;
+        let ratePerPeriod = rateNumber / 1200; // default monthly
+
+        if (frequency === 'Daily') {
+            totalInstallments = Math.max(1, Math.round(tenureNumber * 30));
+            ratePerPeriod = rateNumber / 36500;
+        } else if (frequency === 'Weekly') {
+            totalInstallments = Math.max(1, Math.round(tenureNumber * 4.333));
+            ratePerPeriod = rateNumber / 5200;
+        } else if (frequency === 'Fortnightly') {
+            totalInstallments = Math.max(1, Math.round(tenureNumber * 2.167));
+            ratePerPeriod = rateNumber / 2600;
+        } else if (frequency === 'Quarterly') {
+            totalInstallments = Math.max(1, Math.round(tenureNumber / 3));
+            ratePerPeriod = rateNumber / 400;
+        }
+
+        if (interestMethod === 'Flat') {
+            const totalInterest = (principalNumber * rateNumber * tenureNumber) / 1200;
+            const totalPayable = principalNumber + totalInterest;
+            return Math.round((totalPayable / totalInstallments) * 100) / 100;
+        }
+
+        if (!Number.isFinite(ratePerPeriod) || ratePerPeriod <= 0) {
+            return Math.round((principalNumber / totalInstallments) * 100) / 100;
+        }
+        const factor = Math.pow(1 + ratePerPeriod, totalInstallments);
+        if (!Number.isFinite(factor) || factor <= 1) {
+            return Math.round((principalNumber / totalInstallments) * 100) / 100;
+        }
+        return Math.round(((principalNumber * ratePerPeriod * factor) / (factor - 1)) * 100) / 100;
     })();
     // Auto-fills the installment amount from the projected repayment maths whenever the
     // principal, rate, tenure or method change, so the operator is not blocked by an
@@ -656,7 +685,23 @@ export function LoanDisburseModal({ record, onClose, onSave }: { record: LoanRec
     </Modal>;
 }
 
-export function LoanDetail({ record, onClose, onCollection, onLifecycle, onApprove }: { record: LoanRecord; onClose: () => void; onCollection: () => void; onLifecycle: (lifecycle: LoanLifecycle, status: Status, input?: LoanLifecycleInput) => void; onApprove: (input: ApproveLoanInput) => Promise<void>; onToast: (message: string) => void }) {
+export function LoanDetail({
+    record,
+    onClose,
+    onCollection,
+    onLifecycle,
+    onApprove,
+    onToast,
+    onViewReceipt,
+}: {
+    record: LoanRecord;
+    onClose: () => void;
+    onCollection: () => void;
+    onLifecycle: (lifecycle: LoanLifecycle, status: Status, input?: LoanLifecycleInput) => void;
+    onApprove: (input: ApproveLoanInput) => Promise<void>;
+    onToast: (message: string) => void;
+    onViewReceipt: (receipt: ReceiptData) => void;
+}) {
     const { can, hasRole } = useAuth();
     const [statementOpen, setStatementOpen] = useState(false);
     const [approvalOpen, setApprovalOpen] = useState(false);
@@ -667,9 +712,6 @@ export function LoanDetail({ record, onClose, onCollection, onLifecycle, onAppro
     const charges = (record.processingFee ?? 0) + (record.documentationFee ?? 0) + (record.insuranceFee ?? 0) + (record.otherCharges ?? 0);
     const canApproveStage = record.lifecycle === 'Application' || record.lifecycle === 'Underwriting';
     const canDisburseStage = record.lifecycle === 'Approved';
-    // The backend gates each lifecycle action by role / permission (see
-    // loans.routes.ts), so the UI mirrors the same authority instead of showing
-    // buttons that would always fail with a 403.
     const roleCanApprove = hasRole('president', 'vice_president', 'managing_director');
     const roleCanComplete = hasRole('president', 'vice_president', 'managing_director');
     const roleCanWriteLoan = can('loans.write');
@@ -685,12 +727,69 @@ export function LoanDetail({ record, onClose, onCollection, onLifecycle, onAppro
                 </div>
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Pricing, controls and disbursement</h3><p>Terms persisted with the loan contract and schedule.</p></div></div><div className="customer-detail-grid loan-detail-grid"><div><span>Product / purpose</span><strong>{record.productCode ?? 'Not configured'} · {record.purpose || 'Not captured'}</strong></div><div><span>Fees and charges</span><strong>₹{charges.toLocaleString('en-IN')}</strong></div><div><span>Processing / documentation</span><strong>₹{(record.processingFee ?? 0).toLocaleString('en-IN')} · ₹{(record.documentationFee ?? 0).toLocaleString('en-IN')}</strong></div><div><span>Insurance / other charges</span><strong>₹{(record.insuranceFee ?? 0).toLocaleString('en-IN')} · ₹{(record.otherCharges ?? 0).toLocaleString('en-IN')}</strong></div><div><span>First due date</span><strong>{record.firstDueDate ?? record.nextDueDate ?? record.loanDate}</strong></div><div><span>Grace / moratorium</span><strong>{record.gracePeriodDays ?? 0} days · {record.moratoriumMonths ?? 0} months</strong></div><div><span>Late fee / penal interest</span><strong>₹{(record.lateFee ?? 0).toLocaleString('en-IN')} · {record.penalInterestRate ?? 0}%</strong></div><div><span>Disbursement</span><strong>{record.disbursementMethod ?? 'Bank transfer'}{record.disbursementReference ? ` · ${record.disbursementReference}` : ''}</strong></div></div></section>
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Borrower and security</h3><p>Underwriting evidence, guarantor details and collateral custody fields.</p></div></div><div className="customer-detail-grid loan-detail-grid"><div><span>Income source</span><strong>{record.incomeSource || 'Not captured'}{record.monthlyIncome ? ` · ₹${record.monthlyIncome.toLocaleString('en-IN')} / month` : ''}</strong></div><div><span>Guarantor</span><strong>{record.guarantorName || 'Not captured'}{record.guarantorPhone ? ` · ${record.guarantorPhone}` : ''}</strong></div><div><span>Collateral</span><strong>{record.collateralDescription || 'Not captured'}</strong></div><div><span>Collateral value / LTV</span><strong>{record.collateralValue ? `₹${record.collateralValue.toLocaleString('en-IN')}` : 'Not captured'} · {record.collateralLtv ?? 0}%</strong></div></div></section>
-                <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Repayment schedule and allocation history</h3><p>Each receipt is allocated across principal, interest, penalty and fees.</p></div><span>{record.installments.length} entries</span></div>{record.installments.length ? <div className="customer-transaction-list">{record.installments.map((item) => <div className="customer-transaction-row" key={item.id}><div><strong>{item.id} · {item.status}</strong><span>Due {item.dueDate}{item.paidDate ? ` · Paid ${item.paidDate}` : ''}</span></div><div><b>₹{item.amount.toLocaleString('en-IN')}</b><small>Principal ₹{item.principal.toLocaleString('en-IN')} · Interest ₹{item.interest.toLocaleString('en-IN')} · Penalty ₹{(item.penalty ?? 0).toLocaleString('en-IN')}{item.fees ? ` · Fees ₹${item.fees.toLocaleString('en-IN')}` : ''} · Paid ₹{(item.paidAmount ?? 0).toLocaleString('en-IN')}{item.paidMethod ? ` · ${item.paidMethod}` : ''}{item.reference ? ` · ${item.reference}` : ''}{item.agent ? ` · ${item.agent}` : ''}</small></div><StatusPill status={item.status === 'Paid' ? 'Completed' : item.status === 'Overdue' ? 'Overdue' : 'Pending'} /></div>)}</div> : <p className="empty-state">No schedule entries recorded on the backend yet.</p>}</section>
+                <section className="customer-subsection">
+                    <div className="customer-section-heading">
+                        <div><h3>Repayment schedule and allocation history</h3><p>Each receipt is allocated across principal, interest, penalty and fees.</p></div>
+                        <span>{record.installments.length} entries</span>
+                    </div>
+                    {record.installments.length ? (
+                        <div className="customer-transaction-list">
+                            {record.installments.map((item) => (
+                                <div className="customer-transaction-row" key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <strong>{item.id} · {item.status}</strong>
+                                        <span>Due {item.dueDate}{item.paidDate ? ` · Paid ${item.paidDate}` : ''}</span>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <b>₹{item.amount.toLocaleString('en-IN')}</b>
+                                        <small>Principal ₹{item.principal.toLocaleString('en-IN')} · Interest ₹{item.interest.toLocaleString('en-IN')}{item.penalty ? ` · Penalty ₹${item.penalty}` : ''}{item.fees ? ` · Fees ₹${item.fees}` : ''}{item.paidMethod ? ` · ${item.paidMethod}` : ''}{item.reference ? ` · Ref: ${item.reference}` : ''}</small>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <StatusPill status={item.status === 'Paid' ? 'Completed' : item.status === 'Overdue' ? 'Overdue' : 'Pending'} />
+                                        {item.status === 'Paid' ? (
+                                            <button
+                                                type="button"
+                                                className="secondary-button"
+                                                style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onViewReceipt({
+                                                        receiptNumber: item.reference || `LN-RCT-${item.id}`,
+                                                        date: item.paidDate || item.dueDate,
+                                                        time: '12:00 PM',
+                                                        customerName: record.customerName,
+                                                        customerId: record.customerId,
+                                                        customerPhone: record.customerPhone,
+                                                        accountNumber: record.id,
+                                                        productName: `${record.loanType}${record.productCode ? ` (${record.productCode})` : ''}`,
+                                                        productType: 'Loan',
+                                                        amount: item.paidAmount || item.amount,
+                                                        paymentMethod: item.paidMethod || 'Cash',
+                                                        agentOrCashier: item.agent || 'Branch Counter',
+                                                        reference: item.reference,
+                                                        outstandingAfter: record.outstandingAmount,
+                                                        narration: `Repayment for installment #${item.id} (Principal: ₹${item.principal}, Interest: ₹${item.interest})`,
+                                                        branch: record.branchName,
+                                                    });
+                                                }}
+                                                title="View / print official loan repayment receipt"
+                                            >
+                                                <FileText size={13} /> Receipt
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="empty-state">No schedule entries recorded on the backend yet.</p>
+                    )}
+                </section>
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Lifecycle and audit trail</h3><p>Approval, disbursement, delinquency, restructuring and closure events.</p></div><span>{record.events.length} events</span></div>{record.events.length ? <div className="customer-transaction-list">{record.events.map((event) => <div className="customer-transaction-row" key={event.id}><div><strong>{event.type}</strong><span>{event.date} · {event.actor}</span></div><div><b>{event.reference}</b><small>{event.note}</small></div></div>)}</div> : <p className="empty-state">No lifecycle or audit events recorded on the backend yet.</p>}</section>
-                <div className="loan-detail-actions customer-detail-actions"><button className="secondary-button" onClick={() => setStatementOpen(true)}>View statement</button>{canApproveStage && roleCanApprove && <button className="secondary-button" onClick={() => setApprovalOpen(true)}>Approve</button>}{canDisburseStage && roleCanWriteLoan && <button className="secondary-button" onClick={() => setDisburseOpen(true)}>Disburse</button>}{record.loanId && isOpenLoan && roleCanComplete && <button className="secondary-button" onClick={() => setRescheduleOpen(true)}>Reschedule</button>}{record.outstandingAmount === 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Settled')}>Settle</button>}{record.outstandingAmount > 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Written off')}>Write off</button>}{roleCanWriteLoan && <button className="primary-button" onClick={onCollection}><Plus size={15} /> Record installment</button>}</div>
+                <div className="loan-detail-actions customer-detail-actions"><button className="secondary-button" onClick={() => setStatementOpen(true)}><FileText size={15} /> View statement</button>{canApproveStage && roleCanApprove && <button className="secondary-button" onClick={() => setApprovalOpen(true)}>Approve</button>}{canDisburseStage && roleCanWriteLoan && <button className="secondary-button" onClick={() => setDisburseOpen(true)}>Disburse</button>}{record.loanId && isOpenLoan && roleCanComplete && <button className="secondary-button" onClick={() => setRescheduleOpen(true)}>Reschedule</button>}{record.outstandingAmount === 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Settled')}>Settle</button>}{record.outstandingAmount > 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Written off')}>Write off</button>}{roleCanWriteLoan && <button className="primary-button" onClick={onCollection}><Plus size={15} /> Record installment</button>}</div>
             </section>
         </div>
-        {statementOpen && <LoanStatementModal record={record} onClose={() => setStatementOpen(false)} />}
+        {statementOpen && <LoanStatementModal record={record} onClose={() => setStatementOpen(false)} onViewReceipt={onViewReceipt} />}
         {approvalOpen && <LoanApprovalModal record={record} onClose={() => setApprovalOpen(false)} onSave={async (input) => { await onApprove(input); setApprovalOpen(false); }} />}
         {disburseOpen && <LoanDisburseModal record={record} onClose={() => setDisburseOpen(false)} onSave={async (disbursedOn) => { onLifecycle('Active', 'Active', { effectiveFrom: disbursedOn }); setDisburseOpen(false); }} />}
         {rescheduleOpen && <LoanRescheduleModal record={record} onClose={() => setRescheduleOpen(false)} onSave={async (input) => { await onLifecycle('Rescheduled', 'Review', input); setRescheduleOpen(false); }} />}
@@ -698,73 +797,101 @@ export function LoanDetail({ record, onClose, onCollection, onLifecycle, onAppro
     </>;
 }
 
-export function LoanStatementModal({ record, onClose }: { record: LoanRecord; onClose: () => void }) {
+export function LoanStatementModal({
+    record,
+    onClose,
+    onViewReceipt,
+}: {
+    record: LoanRecord;
+    onClose: () => void;
+    onViewReceipt: (receipt: ReceiptData) => void;
+}) {
     const [events, setEvents] = useState(record.events);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [exporting, setExporting] = useState(false);
-    // Re-reads the loan statement from the backend so the ledger always reflects the
-    // latest allocation and lifecycle events rather than a cached list row.
+
     useEffect(() => {
         const loanId = record.loanId;
         if (!loanId) { setEvents(record.events); return; }
         let active = true;
-        setLoading(true);
         loansRepository
             .statement(loanId)
-            .then((fresh) => { if (active) { setEvents(fresh); setError(''); } })
-            .catch((reason: unknown) => { if (active) setError(messageFor(reason, 'Unable to load the loan statement from the backend.')); })
-            .finally(() => { if (active) setLoading(false); });
+            .then((fresh) => { if (active) setEvents(fresh); })
+            .catch(() => {});
         return () => { active = false; };
     }, [record.loanId]);
-    const exportCsv = () => {
-        if (exporting) return;
-        setExporting(true);
-        try {
-            const header = ['Loan account', 'Customer', 'Event', 'Date', 'Reference', 'Actor', 'Note'];
-            const rows = events.map((event) => [record.id, record.customerName, event.type, event.date, event.reference, event.actor, event.note].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','));
-            const csv = [header.join(','), ...rows].join('\r\n');
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `loan-statement-${record.id}-${new Date().toISOString().slice(0, 10)}.csv`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        } finally {
-            setExporting(false);
-        }
+
+    const statementEntries: StatementEntry[] = useMemo(() => {
+        const list: StatementEntry[] = [];
+        // Disbursement debit entry
+        list.push({
+            id: 'DISB',
+            date: record.loanDate,
+            description: `Loan Disbursement (${record.loanType})`,
+            reference: record.disbursementReference,
+            receiptNumber: record.disbursementReference || `DISB-${record.id}`,
+            debit: record.principal,
+            balance: record.principal,
+            paymentMethod: record.disbursementMethod || 'Bank transfer',
+            agentOrCashier: record.approvedBy || 'Branch Manager',
+            status: 'Completed',
+        });
+
+        // Paid installments / repayments
+        record.installments.forEach((inst) => {
+            if (inst.status === 'Paid') {
+                list.push({
+                    id: inst.id,
+                    date: inst.paidDate || inst.dueDate,
+                    description: `Repayment Installment #${inst.id} (P: ₹${inst.principal}, I: ₹${inst.interest})`,
+                    reference: inst.reference,
+                    receiptNumber: inst.reference || `RCT-${inst.id}`,
+                    credit: inst.paidAmount || inst.amount,
+                    balance: record.outstandingAmount,
+                    paymentMethod: inst.paidMethod || 'Cash',
+                    agentOrCashier: inst.agent || 'Branch Counter',
+                    status: 'Completed',
+                });
+            }
+        });
+
+        // Other events
+        events.forEach((evt) => {
+            if (evt.type.toLowerCase().includes('repayment') || evt.type.toLowerCase().includes('disbursement')) return;
+            list.push({
+                id: evt.id,
+                date: evt.date,
+                description: `${evt.type} · ${evt.note}`,
+                reference: evt.reference,
+                receiptNumber: evt.reference,
+                paymentMethod: 'Audit Event',
+                agentOrCashier: evt.actor,
+                status: 'Completed',
+            });
+        });
+
+        return list;
+    }, [record, events]);
+
+    const accountMeta: StatementAccountMeta = {
+        accountNumber: record.id,
+        customerName: record.customerName,
+        customerId: record.customerId,
+        customerPhone: record.customerPhone,
+        productName: `${record.loanType}${record.productCode ? ` (${record.productCode})` : ''}`,
+        productType: 'Loan',
+        branch: record.branchName,
+        currentBalance: record.outstandingAmount,
+        outstandingAmount: record.outstandingAmount,
+        openedOn: record.loanDate,
     };
-    return <Modal title={`Statement · ${record.id}`} eyebrow={`LOAN STATEMENT / ${record.customerName}`} onClose={onClose} wide>
-        <div className="customer-detail-grid">
-            <div><span>Customer</span><strong>{record.customerName}</strong></div>
-            <div><span>Loan type</span><strong>{record.loanType}</strong></div>
-            <div><span>Product</span><strong>{record.productCode ?? 'Not captured'}</strong></div>
-            <div><span>Branch</span><strong>{record.branchName ?? 'Not captured'}</strong></div>
-            <div><span>Gross principal</span><strong>₹{record.principal.toLocaleString('en-IN')}</strong></div>
-            <div><span>Outstanding principal</span><strong className="orange-text">₹{record.outstandingAmount.toLocaleString('en-IN')}</strong></div>
-            <div><span>Paid to date</span><strong className="green-text">₹{record.paidAmount.toLocaleString('en-IN')}</strong></div>
-            <div><span>Total payable</span><strong>₹{(record.totalPayable ?? record.principal).toLocaleString('en-IN')}</strong></div>
-            <div><span>Tenure</span><strong>{record.tenureMonths} months</strong></div>
-            <div><span>Interest rate</span><strong>{record.interestRate}% p.a.</strong></div>
-            <div><span>Installment</span><strong>₹{record.installmentAmount.toLocaleString('en-IN')}</strong></div>
-            <div><span>Next due date</span><strong>{record.nextDueDate ?? record.firstDueDate ?? 'Not scheduled'}</strong></div>
-        </div>
-        <section className="customer-subsection">
-            <div className="customer-section-heading">
-                <div><h3>Statement entries</h3><p>Allocation and lifecycle events recorded on the backend.</p></div>
-                <span>{loading ? 'Loading…' : `${events.length} entries`}</span>
-            </div>
-            {error ? <p className="form-error">{error}</p> : null}
-            {events.length ? <div className="customer-transaction-list">{events.map((event) => <div className="customer-transaction-row" key={event.id}><div><strong>{event.type}</strong><span>{event.date} · {event.actor}</span></div><div><b>{event.reference}</b><small>{event.note}</small></div></div>)}</div> : <p className="empty-state">No statement entries recorded on the backend yet.</p>}
-        </section>
-        <div className="admin-form-actions">
-            <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-            <button type="button" className="primary-button" onClick={exportCsv} disabled={exporting}><Download size={15} /> {exporting ? 'Exporting…' : 'Export statement'}</button>
-        </div>
-    </Modal>;
+
+    return (
+        <AccountStatementModal
+            account={accountMeta}
+            entries={statementEntries}
+            onClose={onClose}
+            onViewReceipt={onViewReceipt}
+        />
+    );
 }
 
 export function LoansPage() {
@@ -776,6 +903,7 @@ export function LoansPage() {
     const [page, setPage] = useState(1);
     const [modal, setModal] = useState<'account' | 'collection' | 'detail' | null>(null);
     const [selected, setSelected] = useState<LoanRecord | undefined>();
+    const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
     const [toast, setToast] = useState('');
     const pageSize = 4;
     const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600); };
@@ -812,8 +940,29 @@ export function LoansPage() {
             const updated = await loansRepository.recordRepayment(loanId, input as LoanRepoRepaymentInput);
             setLoanRows((current) => current.map((row) => ((row.loanId ?? row.id) === loanId ? updated : row)));
             setSelected(updated);
-            close();
-            notify('Loan repayment recorded and allocated on the backend.');
+            setModal('detail');
+
+            const receiptNum = input.referenceNumber?.trim() || `LN-RCT-${Date.now().toString().slice(-6)}`;
+            const receiptData: ReceiptData = {
+                receiptNumber: receiptNum,
+                date: input.paidOn || new Date().toISOString().slice(0, 10),
+                time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                customerName: selected.customerName,
+                customerId: selected.customerId,
+                customerPhone: selected.customerPhone,
+                accountNumber: selected.id,
+                productName: `${selected.loanType}${selected.productCode ? ` (${selected.productCode})` : ''}`,
+                productType: 'Loan',
+                amount: Number(input.amount),
+                paymentMethod: input.paymentMethod || 'Cash',
+                agentOrCashier: 'Branch Counter',
+                reference: input.referenceNumber,
+                outstandingAfter: updated.outstandingAmount,
+                narration: `Loan installment repayment for ${selected.id}`,
+                branch: selected.branchName,
+            };
+            setActiveReceipt(receiptData);
+            notify('Loan repayment recorded and allocated on the backend! Receipt generated.');
         } catch (reason) {
             notify(messageFor(reason, 'Unable to record the loan repayment.'));
         }
@@ -886,5 +1035,5 @@ export function LoansPage() {
         }
     };
     return <div className="admin-page"><div className="page-heading"><div><div className="eyebrow">OPERATIONS / LOANS</div><h1>Loans</h1><p>Manage loan accounts, repayment schedules, collections and customer history.</p></div><button className="primary-button" onClick={() => setModal('account')}><Plus size={16} /> Create loan account</button></div><SummaryStrip items={[{ label: 'Active loans', value: String(loanRows.filter((row) => row.status === 'Active').length), tone: 'green' }, { label: 'Outstanding amount', value: `₹${(outstanding / 100000).toFixed(2)}L` }, { label: 'Due amount', value: `₹${dueAmount.toLocaleString('en-IN')}`, tone: 'orange' }, { label: 'Overdue accounts', value: String(loanRows.filter((row) => row.status === 'Overdue').length), tone: 'red' }]} /><section className="panel table-panel"><div className="filter-bar"><div className="filter-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search loan, customer, agent or reference..." aria-label="Search loans" /></div><div role="tablist" aria-label="Loan scheme tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '0 0 4px' }}>{(['All', 'Daily Loan', 'Weekly Loan', 'Personal Loan', 'Business Loan', 'Mortgage Loan', 'Gold Loan', 'SHG Loan', 'Other Loan'] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={loanTypeFilter === tab} onClick={() => { setLoanTypeFilter(tab); setPage(1); }} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid var(--border, #d7dbe0)', background: loanTypeFilter === tab ? 'var(--primary, #1f6feb)' : 'transparent', color: loanTypeFilter === tab ? '#fff' : 'inherit', cursor: 'pointer', fontSize: 13 }}>{tab === 'All' ? 'All loans' : tab.replace(' Loan', '')}{tab !== 'All' ? ` (${loanRows.filter((row) => row.loanType === tab).length})` : ''}</button>)}</div><select className="filter-button customer-status-filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as 'All' | Status); setPage(1); }} aria-label="Filter loans by status"><option value="All">All statuses</option><option value="Active">Active</option><option value="Pending">Pending</option><option value="Overdue">Overdue</option><option value="Completed">Completed</option><option value="Review">Review</option></select><button className="filter-button" onClick={() => notify('Loan due-date range selector is ready for local data.')}><CalendarDays size={15} /> Due range</button><button className="filter-button" onClick={() => { setStatusFilter('Overdue'); setPage(1); notify('Showing overdue loan accounts.'); }}><SlidersHorizontal size={15} /> Filters</button><button className="icon-button export-button" onClick={() => notify(`${filteredRows.length} loan account records prepared for export.`)} aria-label="Export loans"><Download size={16} /></button></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Loan account</th><th>Loan amount</th><th>Installment</th><th>Outstanding</th><th>Schedule</th><th>Status</th><th /></tr></thead><tbody>{loading ? <tr><td className="empty-state" colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#888' }}><Loader2 size={24} className="spin" style={{ margin: '0 auto 10px', display: 'block', opacity: 0.5 }} /> Loading loan accounts...</td></tr> : visibleRows.length ? visibleRows.map((row) => <tr key={row.id} onClick={() => openDetail(row)}><td><strong>{row.customerName}</strong><span>{row.id} · {row.customerId}</span><small>{row.loanType} · {row.interestRate}% p.a. · {row.tenureMonths} months · {row.lifecycle}</small></td><td><strong className="table-amount">₹{row.principal.toLocaleString('en-IN')}</strong><span>{row.loanDate}</span></td><td><strong className="table-amount">₹{row.installmentAmount.toLocaleString('en-IN')}</strong><span>{row.installments.length} entries</span></td><td><strong className="loan-outstanding-amount">₹{row.outstandingAmount.toLocaleString('en-IN')}</strong><span>Paid ₹{row.paidAmount.toLocaleString('en-IN')}</span></td><td><strong>{row.installments.filter((item) => item.status === 'Paid').length} paid</strong><span>{row.installments.filter((item) => item.status !== 'Paid').length} pending</span></td><td><StatusPill status={row.status} /></td><td><button className="row-action" onClick={(event) => { event.stopPropagation(); openDetail(row); }} aria-label={`Open ${row.id}`}><ArrowUpRight size={15} /></button></td></tr>) : <tr><td className="empty-state" colSpan={7}>No loan accounts match the current search and status filter.</td></tr>}</tbody></table></div><Pagination page={page} pageSize={pageSize} totalItems={filteredRows.length} itemName="loans" setPage={setPage} />
-</section>{modal === 'account' && <LoanModal mode="account" onClose={close} onSave={(input) => saveAccount(input as LoanInput)} />}{modal === 'collection' && selected && <LoanModal mode="collection" record={selected} onClose={close} onSave={(input) => saveCollection(input as LoanCollectionInput)} />}{modal === 'detail' && selected && <LoanDetail record={selected} onClose={close} onCollection={() => setModal('collection')} onLifecycle={updateLifecycle} onApprove={approveApplication} onToast={notify} />}{toast && <div className="admin-toast"><CheckCircle2 size={16} />{toast}</div>}</div>;
+</section>{modal === 'account' && <LoanModal mode="account" onClose={close} onSave={(input) => saveAccount(input as LoanInput)} />}{modal === 'collection' && selected && <LoanModal mode="collection" record={selected} onClose={close} onSave={(input) => saveCollection(input as LoanCollectionInput)} />}{modal === 'detail' && selected && <LoanDetail record={selected} onClose={close} onCollection={() => setModal('collection')} onLifecycle={updateLifecycle} onApprove={approveApplication} onToast={notify} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}{activeReceipt && <TransactionReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />}{toast && <div className="admin-toast"><CheckCircle2 size={16} />{toast}</div>}</div>;
 }

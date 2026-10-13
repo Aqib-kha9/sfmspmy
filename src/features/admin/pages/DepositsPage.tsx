@@ -1,8 +1,8 @@
 // OPERATIONS / Deposits.
 
 import { Pagination } from '../../../components/ui/Pagination';
-import { FormEvent, useEffect, useState } from 'react';
-import { CalendarDays, CheckCircle2, ChevronRight, Download, Filter, Loader2, LockKeyhole, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, LockKeyhole, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { depositsRepository } from '../services/operations/depositsApiRepository';
 import type { DepositInput as DepositRepoInput, DepositTransactionInput as DepositRepoTransactionInput, DepositRecord as DepositRecordView, DepositTransaction as DepositTransactionView, DepositStatement, DepositProduct, DepositUpdateInput, DepositStatementQuery } from '../services/operations/depositsApiRepository';
 import { customerRepository } from '../../customers/services/customerApiRepository';
@@ -14,6 +14,8 @@ import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
 import { formatCurrency } from '../../../lib/formatters/formatters';
 import { useAuth } from '../../auth/AuthContext';
 import { type Status, StatusPill, SummaryStrip } from '../components/adminShared';
+import { TransactionReceiptModal, type ReceiptData } from '../components/TransactionReceiptModal';
+import { AccountStatementModal, type StatementEntry, type StatementAccountMeta } from '../components/AccountStatementModal';
 
 /**
  * The deposit record/transaction shapes are owned by the deposits adapter so
@@ -209,77 +211,125 @@ export function DepositEditModal({ record, onClose, onSave }: { record: DepositR
     </Modal>;
 }
 
-export function DepositStatementModal({ record, onClose }: { record: DepositRecord; onClose: () => void }) {
+export function DepositStatementModal({
+    record,
+    onClose,
+    onViewReceipt,
+}: {
+    record: DepositRecord;
+    onClose: () => void;
+    onViewReceipt: (receipt: ReceiptData) => void;
+}) {
     const [statement, setStatement] = useState<DepositStatement | undefined>();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [periodError, setPeriodError] = useState('');
-    const [from, setFrom] = useState('');
-    const [to, setTo] = useState('');
-    const load = (query: DepositStatementQuery) => {
-        setLoading(true);
-        depositsRepository.statement(record.id, query)
-            .then((view) => { setStatement(view); setError(''); })
-            .catch((reason: unknown) => setError(messageFor(reason, 'Unable to load the deposit statement from the backend.')))
-            .finally(() => setLoading(false));
-    };
+
     useEffect(() => {
-        setStatement(undefined);
-        load({});
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        let active = true;
+        depositsRepository.statement(record.id, {})
+            .then((view) => { if (active) { setStatement(view); setError(''); } })
+            .catch((reason: unknown) => { if (active) setError(messageFor(reason, 'Unable to load deposit statement.')); })
+            .finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
     }, [record.id]);
-    const applyPeriod = () => {
-        if (from && to && from > to) { setPeriodError('The start date cannot be after the end date.'); return; }
-        setPeriodError('');
-        load({ from: from || undefined, to: to || undefined });
+
+    const statementEntries: StatementEntry[] = useMemo(() => {
+        if (statement?.entries?.length) {
+            return statement.entries.map((entry) => ({
+                id: entry.id,
+                date: entry.date,
+                description: entry.description || 'Ledger entry',
+                reference: entry.reference,
+                receiptNumber: entry.reference || `DEP-${entry.id}`,
+                debit: entry.direction === 'debit' ? entry.amount : undefined,
+                credit: entry.direction === 'credit' ? entry.amount : undefined,
+                balance: entry.balanceAfter,
+                paymentMethod: entry.paymentMethod || 'Cash',
+                agentOrCashier: entry.recordedBy || 'Branch Counter',
+                status: 'Completed',
+            }));
+        }
+        return record.transactions.map((tx) => ({
+            id: tx.id,
+            date: tx.date,
+            description: `${tx.type} · ${tx.narration || ''}`,
+            reference: tx.reference,
+            receiptNumber: tx.reference || `TXN-${tx.id}`,
+            debit: tx.type === 'Withdrawal' ? tx.amount : undefined,
+            credit: tx.type !== 'Withdrawal' ? tx.amount : undefined,
+            balance: tx.balanceAfter,
+            paymentMethod: tx.paymentMethod || 'Cash',
+            agentOrCashier: tx.agent || tx.recordedBy || 'Branch Counter',
+            status: tx.status,
+        }));
+    }, [statement, record]);
+
+    const accountMeta: StatementAccountMeta = {
+        accountNumber: record.id,
+        customerName: record.customerName,
+        customerId: record.customerId,
+        customerPhone: record.customerPhone,
+        productName: record.productName || record.accountType,
+        productType: (record.accountType as string) === 'Daily Deposit' ? 'Daily' : 'Deposit',
+        branch: record.branch,
+        currentBalance: record.balance,
+        openedOn: record.openedOn,
     };
-    const resetPeriod = () => { setFrom(''); setTo(''); setPeriodError(''); load({}); };
-    return <Modal title={`Statement · ${record.id}`} eyebrow={`DEPOSIT STATEMENT / ${record.customerName}`} onClose={onClose} wide>
-        <p className="customer-modal-intro">Every figure below is served by the backend statement service for account {record.id}.</p>
-        <div className="statement-filter">
-            <label className="statement-field"><span>From</span><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
-            <label className="statement-field"><span>To</span><input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
-            <div className="statement-filter-actions">
-                <button className="primary-button" onClick={applyPeriod} disabled={loading}>{loading ? <Loader2 size={15} className="spin" /> : null}Apply period</button>
-                <button className="secondary-button" onClick={resetPeriod} disabled={loading}>Reset</button>
-            </div>
-        </div>
-        {periodError ? <p className="statement-error">{periodError}</p> : null}
-        {error ? <p className="statement-error">{error}</p> : null}
-        {loading ? <div className="customer-empty"><Loader2 className="spin" size={16} /> Loading statement…</div>
-            : statement ? <>
-                <div className="statement-summary">
-                    <div className="statement-stat"><span>Opening balance</span><strong>{formatCurrency(statement.openingBalance)}</strong></div>
-                    <div className="statement-stat"><span>Closing balance</span><strong>{formatCurrency(statement.closingBalance)}</strong></div>
-                    <div className="statement-stat"><span>Total credits</span><strong>{formatCurrency(statement.totalCredits)}</strong></div>
-                    <div className="statement-stat"><span>Total debits</span><strong>{formatCurrency(statement.totalDebits)}</strong></div>
-                    <div className="statement-stat"><span>Entries</span><strong>{statement.total}</strong></div>
-                </div>
-                <p className="statement-period">{statement.productName} · {statement.productCode}{statement.branch ? ` · ${statement.branch}` : ''} · {depositStatementPeriod(statement.from, statement.to)}</p>
-                <section className="customer-subsection">
-                    <div className="customer-section-heading">
-                        <div><h3>Ledger entries</h3><p>Newest first, exactly as posted by the backend.</p></div>
-                        <span>{statement.entries.length} rows</span>
-                    </div>
-                    {statement.entries.length ? <div className="statement-table-wrap"><table className="statement-table">
-                        <thead><tr><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
-                        <tbody>{statement.entries.map((entry) => <tr key={entry.id}>
-                            <td>{entry.date}</td>
-                            <td><strong>{entry.description}</strong>{entry.reference || entry.paymentMethod || entry.recordedBy ? <small>{[entry.reference, entry.paymentMethod, entry.recordedBy].filter(Boolean).join(' · ')}</small> : null}</td>
-                            <td className="statement-debit">{entry.direction === 'debit' ? formatCurrency(entry.amount) : '—'}</td>
-                            <td className="statement-credit">{entry.direction === 'credit' ? formatCurrency(entry.amount) : '—'}</td>
-                            <td>{formatCurrency(entry.balanceAfter)}</td>
-                        </tr>)}</tbody>
-                    </table></div> : <div className="customer-empty">No ledger entries were posted in this period.</div>}
-                </section>
-            </> : null}
-    </Modal>;
+
+    return (
+        <AccountStatementModal
+            account={accountMeta}
+            entries={statementEntries}
+            onClose={onClose}
+            onViewReceipt={onViewReceipt}
+        />
+    );
 }
 
-export function DepositDetail({ record, onClose, onEdit, onTransaction, onStatement, onApprove, approving, canApprove }: { record: DepositRecord; onClose: () => void; onEdit: () => void; onTransaction: () => void; onStatement: () => void; onApprove: () => void; approving: boolean; canApprove: boolean }) {
+export function DepositDetail({
+    record,
+    onClose,
+    onEdit,
+    onTransaction,
+    onStatement,
+    onApprove,
+    approving,
+    canApprove,
+    onViewReceipt,
+}: {
+    record: DepositRecord;
+    onClose: () => void;
+    onEdit: () => void;
+    onTransaction: () => void;
+    onStatement: () => void;
+    onApprove: () => void;
+    approving: boolean;
+    canApprove: boolean;
+    onViewReceipt: (receipt: ReceiptData) => void;
+}) {
     const interest = [record.interestMethod, record.interestFrequency, record.interestRate !== undefined ? `${record.interestRate}%` : undefined].filter(Boolean).join(' · ');
     const identity = [record.identityType, record.identityReference].filter(Boolean).join(' · ');
     const nominee = record.nomineeName ? `${record.nomineeName}${record.nomineeRelation ? ` · ${record.nomineeRelation}` : ''}${record.nomineePhone ? ` · ${record.nomineePhone}` : ''}` : 'Not captured';
+
+    const buildTxReceipt = (transaction: DepositTransaction): ReceiptData => ({
+        receiptNumber: transaction.reference || `TXN-${transaction.id}`,
+        date: transaction.date,
+        time: '11:30 AM',
+        customerName: record.customerName,
+        customerId: record.customerId,
+        customerPhone: record.customerPhone,
+        accountNumber: record.id,
+        productName: `${record.productName || record.accountType} (${transaction.type})`,
+        productType: (record.accountType as string) === 'Daily Deposit' ? 'Daily' : 'Deposit',
+        amount: transaction.amount,
+        paymentMethod: transaction.paymentMethod || 'Cash',
+        agentOrCashier: transaction.agent || transaction.recordedBy || 'Branch Counter',
+        reference: transaction.reference,
+        balanceAfter: transaction.balanceAfter,
+        narration: transaction.narration || `${transaction.type} transaction for account ${record.id}`,
+        branch: record.branch,
+    });
+
     return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
         <section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`Deposit ${record.id}`}>
             <div className="admin-modal-header">
@@ -315,8 +365,8 @@ export function DepositDetail({ record, onClose, onEdit, onTransaction, onStatem
                     <div><h3>Deposit transaction history</h3><p>Customer-wise entries recorded against this deposit account.</p></div>
                     <span>{record.transactions.length} records</span>
                 </div>
-                {record.transactions.length ? <div className="customer-transaction-list">{record.transactions.map((transaction) => <div className="deposit-entry-row" key={transaction.id}>
-                    <div className="deposit-entry-main">
+                {record.transactions.length ? <div className="customer-transaction-list">{record.transactions.map((transaction) => <div className="deposit-entry-row" key={transaction.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                    <div className="deposit-entry-main" style={{ flex: 1 }}>
                         <div className="deposit-entry-head"><strong>{transaction.type}</strong><StatusPill status={transaction.status} /></div>
                         <span className="deposit-entry-narration">{transaction.narration?.trim() || 'No narration recorded for this entry.'}</span>
                         <div className="deposit-entry-meta">
@@ -328,14 +378,28 @@ export function DepositDetail({ record, onClose, onEdit, onTransaction, onStatem
                             {transaction.recordedBy ? <div><em>Recorded by</em><span title={transaction.recordedBy}>{transaction.recordedBy}</span></div> : null}
                         </div>
                     </div>
-                    <div className={`deposit-entry-side ${transaction.type === 'Withdrawal' ? 'is-debit' : 'is-credit'}`}>
-                        <b>{formatCurrency(transaction.amount)}</b>
-                        {transaction.balanceAfter !== undefined ? <small>Balance {formatCurrency(transaction.balanceAfter)}</small> : null}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                        <div className={`deposit-entry-side ${transaction.type === 'Withdrawal' ? 'is-debit' : 'is-credit'}`}>
+                            <b>{formatCurrency(transaction.amount)}</b>
+                            {transaction.balanceAfter !== undefined ? <small>Balance {formatCurrency(transaction.balanceAfter)}</small> : null}
+                        </div>
+                        <button
+                            type="button"
+                            className="secondary-button"
+                            style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onViewReceipt(buildTxReceipt(transaction));
+                            }}
+                            title="View / print official receipt"
+                        >
+                            <FileText size={13} /> Receipt
+                        </button>
                     </div>
                 </div>)}</div> : <div className="customer-empty">No deposit transactions recorded for this account.</div>}
             </section>
             <div className="customer-detail-actions">
-                <button className="secondary-button" onClick={onStatement}><Download size={15} /> View / export statement</button>
+                <button className="secondary-button" onClick={onStatement}><FileText size={15} /> View / export statement</button>
                 <button className="secondary-button" onClick={onEdit}>Edit account</button>
                 {record.status === 'Pending' && (canApprove
                     ? <button className="primary-button" onClick={onApprove} disabled={approving}>{approving ? <Loader2 size={15} className="spin" /> : <CheckCircle2 size={15} />} Approve account</button>
@@ -357,6 +421,7 @@ export function DepositsPage() {
     const [statusFilter, setStatusFilter] = useState<'All' | Status>('All');
     const [modal, setModal] = useState<'account' | 'transaction' | 'edit' | 'statement' | 'detail' | null>(null);
     const [selected, setSelected] = useState<DepositRecord | undefined>();
+    const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
     const [approvingId, setApprovingId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);
@@ -436,8 +501,30 @@ export function DepositsPage() {
         try {
             const record = await depositsRepository.postTransaction(selected.id, input as DepositRepoTransactionInput);
             setDepositRows((current) => current.map((row) => (row.id === selected.id ? record : row)));
-            close();
-            notify('Deposit transaction recorded on the backend.');
+            setSelected(record);
+            setModal('detail');
+
+            const receiptNum = input.reference?.trim() || `DEP-TXN-${Date.now().toString().slice(-6)}`;
+            const receiptData: ReceiptData = {
+                receiptNumber: receiptNum,
+                date: input.date || new Date().toISOString().slice(0, 10),
+                time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                customerName: selected.customerName,
+                customerId: selected.customerId,
+                customerPhone: selected.customerPhone,
+                accountNumber: selected.id,
+                productName: `${selected.productName || selected.accountType} (${input.type})`,
+                productType: (selected.accountType as string) === 'Daily Deposit' ? 'Daily' : 'Deposit',
+                amount: Number(input.amount),
+                paymentMethod: input.paymentMethod || 'Cash',
+                agentOrCashier: 'Branch Counter',
+                reference: input.reference,
+                balanceAfter: record.balance,
+                narration: input.narration || `${input.type} entry for account ${selected.id}`,
+                branch: selected.branch,
+            };
+            setActiveReceipt(receiptData);
+            notify('Deposit transaction recorded on backend! Receipt generated.');
         } catch (reason) {
             notify(messageFor(reason, 'Unable to record the deposit transaction on the backend.'));
         }
@@ -536,8 +623,9 @@ export function DepositsPage() {
         {modal === 'account' && <DepositModal mode="account" onClose={close} onSave={(input) => saveAccount(input as DepositInput)} />}
         {modal === 'transaction' && selected && <DepositModal mode="transaction" record={selected} onClose={close} onSave={(input) => saveTransaction(input as DepositTransactionInput)} />}
         {modal === 'edit' && selected && <DepositEditModal record={selected} onClose={close} onSave={saveEdit} />}
-        {modal === 'statement' && selected && <DepositStatementModal record={selected} onClose={close} />}
-        {modal === 'detail' && selected && <DepositDetail record={selected} onClose={close} onEdit={() => setModal('edit')} onTransaction={() => setModal('transaction')} onStatement={() => setModal('statement')} onApprove={() => void approveAccount(selected)} approving={approvingId === selected.id} canApprove={canApproveDeposit} />}
+        {modal === 'statement' && selected && <DepositStatementModal record={selected} onClose={close} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}
+        {modal === 'detail' && selected && <DepositDetail record={selected} onClose={close} onEdit={() => setModal('edit')} onTransaction={() => setModal('transaction')} onStatement={() => setModal('statement')} onApprove={() => void approveAccount(selected)} approving={approvingId === selected.id} canApprove={canApproveDeposit} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}
+        {activeReceipt && <TransactionReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />}
         {toast && <div className="admin-toast">
             <CheckCircle2 size={16} />{toast}</div>}
     </div>;

@@ -522,10 +522,12 @@ export class ApiCustomerRepository implements CustomerRepository {
             if (input.assignedAgent && input.assignedAgent !== 'Unassigned') {
                 try {
                     const agents = await agentsRepository.list();
-                    const trimmed = input.assignedAgent.trim();
-                    const agent = agents.find((a) => a.name === trimmed || a.employeeCode === trimmed || a.id === trimmed);
-                    if (agent) {
-                        await agentsRepository.assignCustomers(agent.id, [created.id]);
+                    const names = input.assignedAgent.split(',').map((s) => s.trim()).filter(Boolean);
+                    for (const name of names) {
+                        const agent = agents.find((a) => a.name === name || a.employeeCode === name || a.id === name);
+                        if (agent) {
+                            await agentsRepository.assignCustomers(agent.id, [created.id]);
+                        }
                     }
                 } catch {
                     // best-effort
@@ -630,9 +632,12 @@ export class ApiCustomerRepository implements CustomerRepository {
             if (input.assignedAgent && input.assignedAgent !== 'Unassigned') {
                 try {
                     const agents = await agentsRepository.list();
-                    const agent = agents.find((a) => a.name === input.assignedAgent);
-                    if (agent) {
-                        await agentsRepository.assignCustomers(agent.id, [customerId]);
+                    const names = input.assignedAgent.split(',').map((s) => s.trim()).filter(Boolean);
+                    for (const name of names) {
+                        const agent = agents.find((a) => a.name === name || a.employeeCode === name || a.id === name);
+                        if (agent) {
+                            await agentsRepository.assignCustomers(agent.id, [customerId]);
+                        }
                     }
                 } catch {
                     // best-effort

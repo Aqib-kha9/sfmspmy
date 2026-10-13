@@ -377,12 +377,20 @@ function productMaps(products: LoanProductView[]): { byId: Map<string, LoanProdu
  */
 function loanToRecord(view: LoanView, products: Map<string, LoanProductView>, instalments: LoanInstallment[] = [], events: LoanRecord['events'] = []): LoanRecord {
     const product = products.get(view.productId);
+    const firstInstalment = instalments[0];
     const principal = Number(view.approvedAmount);
     const disbursed = Number(view.disbursedAmount);
     const totalPayable = Number(view.totalPayable);
     const documents = view.documents ?? {};
-    const firstInstalment = instalments[0];
-    const fallbackInstalment = view.tenureMonths > 0 ? Math.round((totalPayable / view.tenureMonths) * 100) / 100 : totalPayable;
+    const fallbackInstalment = (() => {
+        if (!view.tenureMonths || view.tenureMonths <= 0) return totalPayable;
+        const freq = view.repaymentFrequency;
+        let count = view.tenureMonths;
+        if (freq === 'daily') count = Math.max(1, Math.round(view.tenureMonths * 30));
+        else if (freq === 'weekly') count = Math.max(1, Math.round(view.tenureMonths * 4.333));
+        else if (freq === 'quarterly') count = Math.max(1, Math.round(view.tenureMonths / 3));
+        return count > 0 ? Math.round((totalPayable / count) * 100) / 100 : totalPayable;
+    })();
     const guarantors = Array.isArray(documents['guarantors']) ? (documents['guarantors'] as GuarantorInput[]) : [];
     const collateral = Array.isArray(documents['collateral']) ? (documents['collateral'] as CollateralInput[]) : [];
     const primaryGuarantor = guarantors[0];
@@ -477,8 +485,15 @@ function applicationToRecord(view: LoanApplicationView, products: Map<string, Lo
         gracePeriodDays: docNumber(documents, 'gracePeriodDays'),
         moratoriumMonths: docNumber(documents, 'moratoriumMonths'),
         lateFee: docNumber(documents, 'lateFee'),
-        penalInterestRate: docNumber(documents, 'penalInterestRate'),
-        installmentAmount: tenure > 0 ? Math.round((amount / tenure) * 100) / 100 : amount,
+        installmentAmount: (() => {
+            if (tenure <= 0) return amount;
+            const freq = view.repaymentFrequency;
+            let count = tenure;
+            if (freq === 'daily') count = Math.max(1, Math.round(tenure * 30));
+            else if (freq === 'weekly') count = Math.max(1, Math.round(tenure * 4.333));
+            else if (freq === 'quarterly') count = Math.max(1, Math.round(tenure / 3));
+            return count > 0 ? Math.round((amount / count) * 100) / 100 : amount;
+        })(),
         outstandingAmount: amount,
         paidAmount: 0,
         pendingAmount: amount,

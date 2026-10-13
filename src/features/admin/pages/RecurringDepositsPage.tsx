@@ -2,8 +2,8 @@
 
 import { Pagination } from '../../../components/ui/Pagination';
 import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
-import { FormEvent, useEffect, useState } from 'react';
-import { ArrowDownToLine, CalendarDays, CheckCircle2, ChevronRight, Download, Filter, Loader2, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ArrowDownToLine, CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, Plus, Search, SlidersHorizontal, Table, TrendingUp } from 'lucide-react';
 import { rdRepository } from '../services/operations/rdApiRepository';
 import type { RDInput as RdRepoInput, RDCollectionInput as RdRepoCollectionInput, SchemeView as RdSchemeView } from '../services/operations/rdApiRepository';
 import { customerRepository } from '../../customers/services/customerApiRepository';
@@ -14,6 +14,46 @@ import { formatCurrency } from '../../../lib/formatters/formatters';
 import { type Status, StatusPill, SummaryStrip } from '../components/adminShared';
 import { AgentOptions } from '../components/backendOptions';
 import { toYmd, parseYmd, addMonthsYmd, addDaysYmd, monthsBetweenYmd } from '../components/adminDateUtils';
+import { TransactionReceiptModal, type ReceiptData } from '../components/TransactionReceiptModal';
+import { AccountStatementModal, type StatementEntry, type StatementAccountMeta } from '../components/AccountStatementModal';
+
+/** Official RD Tenures specified by client rate card (आकर्षक आवर्त ठेव योजना) */
+export const RD_SLAB_TENURES = [12, 24, 36, 48, 60, 72, 84, 96, 108, 120] as const;
+
+/** Official Monthly Deposit amounts specified in client rate card */
+export const RD_SLAB_AMOUNTS = [500, 1000, 2000, 3000, 4000, 5000] as const;
+
+/** Base maturity payout per ₹1,000 monthly deposit across tenures */
+export const RD_MATURITY_PER_1000: Record<number, number> = {
+    12: 12780,
+    24: 27240,
+    36: 43560,
+    48: 62400,
+    60: 83250,
+    72: 106560,
+    84: 133980,
+    96: 163200,
+    108: 195480,
+    120: 234000,
+};
+
+/** Exact rate card chart rows from client's Marathi rate card flyer (आकर्षक आवर्त ठेव योजना तक्ता) */
+export const RD_SLAB_MATRIX: Array<{ deposit: number; returns: Record<number, number> }> = [
+    { deposit: 500, returns: { 12: 6390, 24: 13620, 36: 21780, 48: 31200, 60: 41625, 72: 53280, 84: 66990, 96: 81600, 108: 97740, 120: 117000 } },
+    { deposit: 1000, returns: { 12: 12780, 24: 27240, 36: 43560, 48: 62400, 60: 83250, 72: 106560, 84: 133980, 96: 163200, 108: 195480, 120: 234000 } },
+    { deposit: 2000, returns: { 12: 25560, 24: 54480, 36: 87120, 48: 124800, 60: 166500, 72: 213120, 84: 267960, 96: 326400, 108: 390960, 120: 468000 } },
+    { deposit: 3000, returns: { 12: 38340, 24: 81720, 36: 130680, 48: 187200, 60: 249750, 72: 319680, 84: 401940, 96: 489600, 108: 586440, 120: 702000 } },
+    { deposit: 4000, returns: { 12: 51120, 24: 108960, 36: 174240, 48: 249600, 60: 333000, 72: 426240, 84: 535920, 96: 652800, 108: 781920, 120: 936000 } },
+    { deposit: 5000, returns: { 12: 63900, 24: 136200, 36: 217800, 48: 312000, 60: 416250, 72: 532800, 84: 669900, 96: 816000, 108: 977400, 120: 1170000 } },
+];
+
+/** Computes the expected RD maturity payout matching client rate card */
+export function calculateRdMaturity(monthlyAmount: number, tenureMonths: number): number | null {
+    if (!monthlyAmount || monthlyAmount <= 0 || !tenureMonths || tenureMonths <= 0) return null;
+    const base = RD_MATURITY_PER_1000[tenureMonths];
+    if (!base) return null;
+    return Math.round((monthlyAmount / 1000) * base);
+}
 
 export type RDInstallment = {
     id: string;
@@ -121,8 +161,9 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
     const [reference, setReference] = useState('');
     const [productCode, setProductCode] = useState(record?.productCode ?? '');
     const [branch, setBranch] = useState(record?.branch ?? '');
-    const [tenureMonths, setTenureMonths] = useState(String(record?.tenureMonths ?? ''));
+    const [tenureMonths, setTenureMonths] = useState(String(record?.tenureMonths ?? '12'));
     const [installmentCount, setInstallmentCount] = useState(String(record?.installmentCount ?? ''));
+    const [showSlabChart, setShowSlabChart] = useState(false);
     const [interestMethod, setInterestMethod] = useState(record?.interestMethod ?? 'Scheme rate');
     const [interestRate, setInterestRate] = useState(String(record?.interestRate ?? ''));
     const [penaltyTerms, setPenaltyTerms] = useState(record?.penaltyTerms ?? '');
@@ -255,6 +296,9 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
     const termOutOfRange = Boolean(
         selectedScheme && !isDailySelected && tenurePreview > 0 && (tenurePreview < selectedScheme.minDurationMonths || tenurePreview > selectedScheme.maxDurationMonths),
     );
+    const slabMaturity = !isDailySelected && amountNumber > 0 && Number(tenureMonths) > 0 ? calculateRdMaturity(amountNumber, Number(tenureMonths)) : null;
+    const totalDeposit = amountNumber > 0 && Number(tenureMonths) > 0 ? amountNumber * Number(tenureMonths) : 0;
+    const interestEarned = slabMaturity ? slabMaturity - totalDeposit : null;
     // Auto-derives the maturity date, tenure and instalment count whenever the
     // opening date, due day, frequency, term or scheme changes. The operator only
     // chooses the inputs that matter, so the schedule mathematics is never typed
@@ -307,13 +351,145 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
             await onSave({ amount: Number(amount), dueDate: dueDay, paidDate: paidDate || undefined, agent, reference: reference.trim(), paymentMethod, externalReference, location, deviceReference, offlineSyncReference, supportingDocuments: collectionDocuments, recordedBy: agent });
         } finally { setSaving(false); }
     };
-    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={mode === 'account' ? 'Open recurring deposit' : 'Record RD installment'}><div className="admin-modal-header"><div><div className="eyebrow">RD WORKFLOW</div><h2>{mode === 'account' ? 'Open recurring deposit account' : `Record installment · ${record?.id}`}</h2><p>{mode === 'account' ? 'Map the RD to a customer and define its collection schedule.' : 'Capture a paid installment collected by branch or doorstep agent.'}</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><form className="form-grid customer-form" onSubmit={(event) => void submit(event)}><FormLegend />{mode === 'account' ? <><label className="full-field"><span>Search customer <Opt /></span><input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Search by name, mobile number or customer number..." aria-label="Search customers" /></label><label className="full-field"><span>Customer <Req /></span><select value={customerId} onChange={(event) => selectCustomer(event.target.value)} aria-label="Select customer"><option value="">{customerLoading ? 'Loading customers...' : 'Select a customer'}</option>{customers.map((option) => <option key={option.id} value={option.id}>{option.name} - {option.customerNumber}</option>)}</select></label>{customerError ? <p className="form-error full-field">{customerError}</p> : null}{customerDetails ? <p className="form-note full-field">Opening against {customerDetails.name} - {customerDetails.phone}{customerDetails.branch ? ` - ${customerDetails.branch}` : null}</p> : null}<label><span>Installment amount <Req /></span><input type="number" min={schemeMinInstalment ?? 1} value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={schemeMinInstalment ? String(schemeMinInstalment) : '3000'} /></label><label><span>Installment frequency <Req /></span><select value={frequency} disabled={mode === 'account'} title={mode === 'account' ? 'Set automatically by the selected scheme' : undefined} onChange={(event) => setFrequency(event.target.value as RDRecord['frequency'])}><option>Daily</option><option>Weekly</option><option>Monthly</option><option>Quarterly</option></select></label><label><span>Installment due day <Req /></span><input value={dueDay} onChange={(event) => setDueDay(event.target.value)} placeholder="10" /></label><label><span>Account opening date <Req /></span><input type="date" value={openedOn} onChange={(event) => setOpenedOn(event.target.value)} /></label><label><span>Maturity date <Req /></span><input type="date" value={maturityDate} readOnly aria-readonly="true" title="Auto-calculated from the opening date, due day and scheme term" onChange={(event) => setMaturityDate(event.target.value)} /></label><label><span>Product / scheme <Req /></span><select value={productCode} onChange={(event) => selectScheme(event.target.value)} aria-label="Select recurring deposit scheme"><option value="">{schemeLoading ? 'Loading schemes...' : schemes.length ? 'Select a scheme' : 'No active schemes configured'}</option>{schemes.map((scheme) => <option key={scheme.id} value={scheme.code}>{scheme.name} - {scheme.code} - {scheme.interestRate}%</option>)}</select></label>{schemeHint ? <p className="form-note full-field">{schemeHint}</p> : null}{amountBelowMin ? <p className="form-error full-field">Installment amount is below the scheme minimum of {formatCurrency(schemeMinInstalment ?? 0)}.</p> : null}{amountAboveMax ? <p className="form-error full-field">Installment amount exceeds the scheme maximum of {formatCurrency(schemeMaxInstalment ?? 0)}.</p> : null}{termOutOfRange ? <p className="form-error full-field">Selected term ({tenurePreview} months) falls outside the scheme window of {selectedScheme?.minDurationMonths}-{selectedScheme?.maxDurationMonths} months.</p> : null}{schedulePreview.length ? <p className="form-note full-field">Auto schedule: first instalment due {firstDuePreview} - {schedulePreview.length} instalments through {schedulePreview[schedulePreview.length - 1]}.</p> : null}<label><span>Branch <Opt /></span><input value={branch} disabled placeholder="Loaded from the customer record" /></label><label><span>Tenure months <Req /></span><input type="number" min="1" value={tenureMonths} readOnly aria-readonly="true" title="Auto-calculated from the opening date and maturity date" onChange={(event) => setTenureMonths(event.target.value)} /></label><label><span>Number of installments <Req /></span><input type="number" min="1" value={installmentCount} readOnly aria-readonly="true" title="Auto-calculated from the term and instalment frequency" onChange={(event) => setInstallmentCount(event.target.value)} /></label><label><span>Interest method <Req /></span><input value={interestMethod} onChange={(event) => setInterestMethod(event.target.value)} /></label><label><span>Interest rate (% p.a.) <Req /></span><input type="number" min="0" step="0.01" value={interestRate} readOnly aria-readonly="true" title="Set from the selected scheme" onChange={(event) => setInterestRate(event.target.value)} /></label><label><span>Penalty / late-fee terms <Opt /></span><input value={penaltyTerms} onChange={(event) => setPenaltyTerms(event.target.value)} /></label><label><span>Maturity instructions <Opt /></span><input value={maturityInstructions} onChange={(event) => setMaturityInstructions(event.target.value)} /></label><label><span>Nominee name <Opt /></span><input value={nomineeName} onChange={(event) => setNomineeName(event.target.value)} /></label><label><span>Nominee phone <Opt /></span><input value={nomineePhone} onChange={(event) => setNomineePhone(event.target.value)} /></label><label><span>Nominee relation <Opt /></span><input value={nomineeRelation} onChange={(event) => setNomineeRelation(event.target.value)} /></label><label><span>Opening channel <Opt /></span><select value={openingChannel} onChange={(event) => setOpeningChannel(event.target.value)}><option>Branch counter</option><option>Doorstep collection</option><option>Mobile app</option><option>Agent assisted</option></select></label><label><span>Document references <Opt /></span><input value={documentReferences} onChange={(event) => setDocumentReferences(event.target.value)} /></label><label><span>RD account status <Opt /></span><select value={status} onChange={(event) => setStatus(event.target.value as Status)}><option>Active</option><option>Pending</option><option>Review</option><option>Inactive</option></select></label></> : <><label><span>Installment amount <Req /></span><input type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label><span>Installment due date <Req /></span><input value={dueDay} onChange={(event) => setDueDay(event.target.value)} placeholder="12 Aug 2026" /></label><label><span>Payment date / Paid on <Req /></span><input type="date" value={paidDate} onChange={(event) => setPaidDate(event.target.value)} /></label><label><span>Collection agent <Req /></span><select value={agent} onChange={(event) => setAgent(event.target.value)}><AgentOptions /><option>Branch counter</option></select></label><label><span>Payment method / channel <Req /></span><input value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} /></label><label><span>External reference / UTR <Opt /></span><input value={externalReference} onChange={(event) => setExternalReference(event.target.value)} /></label><label><span>Collection location <Opt /></span><input value={location} onChange={(event) => setLocation(event.target.value)} /></label><label><span>Device reference <Opt /></span><input value={deviceReference} onChange={(event) => setDeviceReference(event.target.value)} /></label><label><span>Offline sync reference <Opt /></span><input value={offlineSyncReference} onChange={(event) => setOfflineSyncReference(event.target.value)} /></label><label><span>Supporting documents <Opt /></span><input value={collectionDocuments} onChange={(event) => setCollectionDocuments(event.target.value)} /></label><label><span>Receipt / transaction reference <Req /></span><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="RCT-88210" /></label></>}{error && <p className="form-error full-field">{error}</p>}<div className="admin-form-actions full-field"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <Loader2 size={15} className="spin" /> : null}{saving ? 'Saving…' : (mode === 'account' ? 'Create RD account' : 'Record installment')}</button></div></form></section></div>;
+    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={mode === 'account' ? 'Open recurring deposit' : 'Record RD installment'}><div className="admin-modal-header"><div><div className="eyebrow">RD WORKFLOW</div><h2>{mode === 'account' ? 'Open recurring deposit account' : `Record installment · ${record?.id}`}</h2><p>{mode === 'account' ? 'Map the RD to a customer and define its collection schedule.' : 'Capture a paid installment collected by branch or doorstep agent.'}</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><form className="form-grid customer-form" onSubmit={(event) => void submit(event)}><FormLegend />{mode === 'account' ? <><label className="full-field"><span>Search customer <Opt /></span><input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Search by name, mobile number or customer number..." aria-label="Search customers" /></label><label className="full-field"><span>Customer <Req /></span><select value={customerId} onChange={(event) => selectCustomer(event.target.value)} aria-label="Select customer"><option value="">{customerLoading ? 'Loading customers...' : 'Select a customer'}</option>{customers.map((option) => <option key={option.id} value={option.id}>{option.name} - {option.customerNumber}</option>)}</select></label>{customerError ? <p className="form-error full-field">{customerError}</p> : null}{customerDetails ? <p className="form-note full-field">Opening against {customerDetails.name} - {customerDetails.phone}{customerDetails.branch ? ` - ${customerDetails.branch}` : null}</p> : null}<div className="full-field"><label><span>Installment amount (दर महा रक्कम) <Req /></span><input type="number" min={schemeMinInstalment ?? 1} value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={schemeMinInstalment ? String(schemeMinInstalment) : '1000'} /></label>{!isDailySelected && <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}><span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>Quick slabs:</span>{RD_SLAB_AMOUNTS.map((preset) => <button type="button" key={preset} onClick={() => setAmount(String(preset))} style={{ padding: '3px 8px', fontSize: '0.75rem', fontWeight: 600, borderRadius: '4px', border: amount === String(preset) ? '1px solid #2563eb' : '1px solid #cbd5e1', background: amount === String(preset) ? '#eff6ff' : '#ffffff', color: amount === String(preset) ? '#1d4ed8' : '#475569', cursor: 'pointer' }}>₹{preset.toLocaleString('en-IN')}</button>)}</div>}</div><label><span>Installment frequency <Req /></span><select value={frequency} disabled={mode === 'account'} title={mode === 'account' ? 'Set automatically by the selected scheme' : undefined} onChange={(event) => setFrequency(event.target.value as RDRecord['frequency'])}><option>Daily</option><option>Weekly</option><option>Monthly</option><option>Quarterly</option></select></label><label><span>Installment due day <Req /></span><input value={dueDay} onChange={(event) => setDueDay(event.target.value)} placeholder="10" /></label><label><span>Account opening date <Req /></span><input type="date" value={openedOn} onChange={(event) => setOpenedOn(event.target.value)} /></label><label><span>Maturity date <Req /></span><input type="date" value={maturityDate} readOnly aria-readonly="true" title="Auto-calculated from the opening date, due day and scheme term" onChange={(event) => setMaturityDate(event.target.value)} /></label><label><span>Product / scheme <Req /></span><select value={productCode} onChange={(event) => selectScheme(event.target.value)} aria-label="Select recurring deposit scheme"><option value="">{schemeLoading ? 'Loading schemes...' : schemes.length ? 'Select a scheme' : 'No active schemes configured'}</option>{schemes.map((scheme) => <option key={scheme.id} value={scheme.code}>{scheme.name} - {scheme.code} - {scheme.interestRate}%</option>)}</select></label>{schemeHint ? <p className="form-note full-field">{schemeHint}</p> : null}{!isDailySelected && <div className="full-field" style={{ marginTop: '4px', marginBottom: '8px' }}>{slabMaturity ? <div style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #eff6ff 100%)', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px 16px', marginBottom: '10px' }}><div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.85rem', color: '#166534' }}><TrendingUp size={16} /> आकर्षक आवर्त ठेव (RD) योजना · Rate Card Projection</div><span style={{ fontSize: '0.75rem', background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>Official Slab</span></div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', textAlign: 'center' }}><div style={{ background: '#ffffff', padding: '8px 6px', borderRadius: '6px', border: '1px solid #e2e8f0' }}><div style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' }}>Total Deposit ({tenureMonths} Mo)</div><div style={{ fontSize: '1rem', fontWeight: 700, color: '#334155' }}>₹{totalDeposit.toLocaleString('en-IN')}</div></div><div style={{ background: '#ffffff', padding: '8px 6px', borderRadius: '6px', border: '1px solid #e2e8f0' }}><div style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' }}>Interest (व्याज)</div><div style={{ fontSize: '1rem', fontWeight: 700, color: '#16a34a' }}>+₹{(interestEarned ?? 0).toLocaleString('en-IN')}</div></div><div style={{ background: '#dcfce7', padding: '8px 6px', borderRadius: '6px', border: '1px solid #86efac' }}><div style={{ fontSize: '0.72rem', color: '#15803d', textTransform: 'uppercase' }}>Maturity Payout (मिळणारी रक्कम)</div><div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#14532d' }}>₹{slabMaturity.toLocaleString('en-IN')}</div></div></div></div> : null}<div style={{ display: 'flex', justifyContent: 'flex-end' }}><button type="button" onClick={() => setShowSlabChart((prev) => !prev)} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 0' }}><Table size={14} />{showSlabChart ? 'Hide Official RD Slab Chart ▲' : 'View Official RD Slab Chart (आकर्षक आवर्त ठेव योजना तक्ता) ▼'}</button></div>{showSlabChart && <div style={{ marginTop: '8px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', overflowX: 'auto' }}><div style={{ marginBottom: '8px', fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>आकर्षक आवर्त ठेव (RD) योजना — Official Rate Card<span style={{ fontWeight: 400, color: '#64748b', marginLeft: '8px', fontSize: '0.75rem' }}>(Click any cell to select amount & tenure)</span></div><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', textAlign: 'center' }}><thead><tr style={{ background: '#1e3a8a', color: '#ffffff' }}><th style={{ padding: '6px 8px', border: '1px solid #cbd5e1', textAlign: 'left' }}>दर महा रक्कम</th>{RD_SLAB_TENURES.map((term) => <th key={term} style={{ padding: '6px 8px', border: '1px solid #cbd5e1' }}>{term} महिने</th>)}</tr></thead><tbody>{RD_SLAB_MATRIX.map((row) => <tr key={row.deposit} style={{ background: amount === String(row.deposit) ? '#eff6ff' : '#ffffff' }}><td style={{ padding: '6px 8px', fontWeight: 700, border: '1px solid #cbd5e1', textAlign: 'left', color: '#1e40af' }}>₹{row.deposit.toLocaleString('en-IN')}</td>{RD_SLAB_TENURES.map((term) => { const isSelected = amount === String(row.deposit) && tenureMonths === String(term); return <td key={term} onClick={() => { setAmount(String(row.deposit)); setTenureMonths(String(term)); }} style={{ padding: '6px 8px', border: '1px solid #cbd5e1', cursor: 'pointer', fontWeight: isSelected ? 800 : 500, background: isSelected ? '#bbf7d0' : undefined, color: isSelected ? '#14532d' : '#334155' }} title={`Deposit ₹${row.deposit}/mo for ${term} months = ₹${(row.returns[term] ?? 0).toLocaleString('en-IN')}`}>₹{(row.returns[term] ?? 0).toLocaleString('en-IN')}</td>; })}</tr>)}</tbody></table></div>}</div>}{amountBelowMin ? <p className="form-error full-field">Installment amount is below the scheme minimum of {formatCurrency(schemeMinInstalment ?? 0)}.</p> : null}{amountAboveMax ? <p className="form-error full-field">Installment amount exceeds the scheme maximum of {formatCurrency(schemeMaxInstalment ?? 0)}.</p> : null}{termOutOfRange ? <p className="form-error full-field">Selected term ({tenurePreview} months) falls outside the scheme window of {selectedScheme?.minDurationMonths}-{selectedScheme?.maxDurationMonths} months.</p> : null}{schedulePreview.length ? <p className="form-note full-field">Auto schedule: first instalment due {firstDuePreview} - {schedulePreview.length} instalments through {schedulePreview[schedulePreview.length - 1]}.</p> : null}<label><span>Branch <Opt /></span><input value={branch} disabled placeholder="Loaded from the customer record" /></label><label><span>Tenure months (मुदत महिने) <Req /></span>{isDailySelected ? <input type="number" min="1" value={tenureMonths} readOnly aria-readonly="true" title="Daily RD fixed tenure" /> : <select value={tenureMonths} onChange={(event) => setTenureMonths(event.target.value)} aria-label="Select RD tenure">{RD_SLAB_TENURES.map((term) => <option key={term} value={term}>{term} Months ({term / 12} {term === 12 ? 'Year' : 'Years'})</option>)}</select>}</label><label><span>Number of installments <Req /></span><input type="number" min="1" value={installmentCount} readOnly aria-readonly="true" title="Auto-calculated from the term and instalment frequency" onChange={(event) => setInstallmentCount(event.target.value)} /></label><label><span>Interest method <Req /></span><input value={interestMethod} onChange={(event) => setInterestMethod(event.target.value)} /></label><label><span>Interest rate (% p.a.) <Req /></span><input type="number" min="0" step="0.01" value={interestRate} readOnly aria-readonly="true" title="Set from the selected scheme" onChange={(event) => setInterestRate(event.target.value)} /></label><label><span>Penalty / late-fee terms <Opt /></span><input value={penaltyTerms} onChange={(event) => setPenaltyTerms(event.target.value)} /></label><label><span>Maturity instructions <Opt /></span><input value={maturityInstructions} onChange={(event) => setMaturityInstructions(event.target.value)} /></label><label><span>Nominee name <Opt /></span><input value={nomineeName} onChange={(event) => setNomineeName(event.target.value)} /></label><label><span>Nominee phone <Opt /></span><input value={nomineePhone} onChange={(event) => setNomineePhone(event.target.value)} /></label><label><span>Nominee relation <Opt /></span><input value={nomineeRelation} onChange={(event) => setNomineeRelation(event.target.value)} /></label><label><span>Opening channel <Opt /></span><select value={openingChannel} onChange={(event) => setOpeningChannel(event.target.value)}><option>Branch counter</option><option>Doorstep collection</option><option>Mobile app</option><option>Agent assisted</option></select></label><label><span>Document references <Opt /></span><input value={documentReferences} onChange={(event) => setDocumentReferences(event.target.value)} /></label><label><span>RD account status <Opt /></span><select value={status} onChange={(event) => setStatus(event.target.value as Status)}><option>Active</option><option>Pending</option><option>Review</option><option>Inactive</option></select></label></> : <><label><span>Installment amount <Req /></span><input type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label><span>Installment due date <Req /></span><input value={dueDay} onChange={(event) => setDueDay(event.target.value)} placeholder="12 Aug 2026" /></label><label><span>Payment date / Paid on <Req /></span><input type="date" value={paidDate} onChange={(event) => setPaidDate(event.target.value)} /></label><label><span>Collection agent <Req /></span><select value={agent} onChange={(event) => setAgent(event.target.value)}><AgentOptions /><option>Branch counter</option></select></label><label><span>Payment method / channel <Req /></span><input value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} /></label><label><span>External reference / UTR <Opt /></span><input value={externalReference} onChange={(event) => setExternalReference(event.target.value)} /></label><label><span>Collection location <Opt /></span><input value={location} onChange={(event) => setLocation(event.target.value)} /></label><label><span>Device reference <Opt /></span><input value={deviceReference} onChange={(event) => setDeviceReference(event.target.value)} /></label><label><span>Offline sync reference <Opt /></span><input value={offlineSyncReference} onChange={(event) => setOfflineSyncReference(event.target.value)} /></label><label><span>Supporting documents <Opt /></span><input value={collectionDocuments} onChange={(event) => setCollectionDocuments(event.target.value)} /></label><label><span>Receipt / transaction reference <Req /></span><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="RCT-88210" /></label></>}{error && <p className="form-error full-field">{error}</p>}<div className="admin-form-actions full-field"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <Loader2 size={15} className="spin" /> : null}{saving ? 'Saving…' : (mode === 'account' ? 'Create RD account' : 'Record installment')}</button></div></form></section></div>;
 }
 
-export function RDDetail({ record, onClose, onEdit, onCollection, onToast }: { record: RDRecord; onClose: () => void; onEdit: () => void; onCollection: () => void; onToast: (message: string) => void }) {
+export function RDDetail({
+    record,
+    onClose,
+    onEdit,
+    onCollection,
+    onStatement,
+    onViewReceipt,
+}: {
+    record: RDRecord;
+    onClose: () => void;
+    onEdit: () => void;
+    onCollection: () => void;
+    onStatement: () => void;
+    onViewReceipt: (receipt: ReceiptData) => void;
+}) {
     const paid = record.installments.filter((item) => item.status === 'Paid').length;
     const pending = record.installments.filter((item) => item.status !== 'Paid').length;
-    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`RD ${record.id}`}><div className="admin-modal-header"><div><div className="eyebrow">RECURRING DEPOSIT / {record.id}</div><h2>{record.customerName}</h2><p>{record.customerId} · {record.customerPhone} · Customer-wise RD history</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><div className="customer-profile-summary"><div className="customer-avatar">{record.customerName.split(' ').map((part) => part[0]).join('')}</div><div><strong>{record.id}</strong><span>{record.frequency} collection · due day {record.installmentDueDate}</span></div><StatusPill status={record.status} /></div><div className="customer-detail-grid"><div><span>RD installment amount</span><strong>₹{record.monthlyAmount.toLocaleString('en-IN')}</strong></div><div><span>Paid installments</span><strong className="green-text">{paid}</strong></div><div><span>Pending installments</span><strong className="orange-text">{pending}</strong></div><div><span>Account status</span><strong>{record.status}</strong></div><div><span>Opened on</span><strong>{record.openedOn}</strong></div><div><span>Maturity date</span><strong>{record.maturityDate}</strong></div><div><span>Product / branch</span><strong>{record.productCode ?? 'Not captured'} · {record.branch ?? 'Not captured'}</strong></div><div><span>Tenure / installments</span><strong>{record.tenureMonths ?? 'Not captured'} months · {record.installmentCount ?? 'Not captured'} installments</strong></div><div><span>Interest terms</span><strong>{record.interestMethod ?? 'Not captured'}{record.interestRate !== undefined ? ` · ${record.interestRate}%` : ''}</strong></div><div><span>Nominee</span><strong>{record.nomineeName ?? 'Not captured'}{record.nomineePhone ? ` · ${record.nomineePhone}` : ''}</strong></div><div><span>Maturity / penalty terms</span><strong>{record.maturityInstructions ?? 'Not captured'} · {record.penaltyTerms ?? 'Not captured'}</strong></div><div><span>Channel / documents</span><strong>{record.openingChannel ?? 'Not captured'} · {record.documentReferences ?? 'Not captured'}</strong></div></div><section className="customer-subsection"><div className="customer-section-heading"><div><h3>Installment collection history</h3><p>Paid and pending entries with agent and receipt audit fields.</p></div><span>{record.installments.length} installments</span></div><div className="customer-transaction-list">{record.installments.map((item) => <div className="customer-transaction-row" key={item.id}><div><strong>{item.id}</strong><span>Due {item.dueDate}{item.paidDate ? ` · Paid ${item.paidDate}` : ''}</span></div><div><b>₹{item.amount.toLocaleString('en-IN')}</b><small>{item.agent}{item.reference ? ` · ${item.reference}` : ''} · {item.paymentMethod ?? 'Method not captured'} · {item.externalReference ?? 'No external reference'} · {item.location ?? 'Location not captured'} · {item.deviceReference ?? 'Device not captured'}{item.offlineSyncReference ? ` · ${item.offlineSyncReference}` : ''}{item.supportingDocuments ? ` · Docs: ${item.supportingDocuments}` : ''}</small></div><StatusPill status={item.status === 'Paid' ? 'Completed' : item.status === 'Overdue' ? 'Overdue' : 'Pending'} /></div>)}</div></section><div className="customer-detail-actions rd-detail-actions"><button className="secondary-button" onClick={() => onToast('RD statement prepared locally for export.')}>View / export statement</button><button className="secondary-button" onClick={onEdit}>Edit RD account</button><button className="primary-button" onClick={onCollection}><ArrowDownToLine size={15} /> Record installment</button></div></section></div>;
+    const isDaily = record.frequency === 'Daily';
+    const slabMaturity = !isDaily && record.tenureMonths ? calculateRdMaturity(record.monthlyAmount, record.tenureMonths) : null;
+    const totalDeposit = record.tenureMonths ? record.monthlyAmount * record.tenureMonths : record.monthlyAmount;
+
+    const buildReceiptData = (item: RDInstallment): ReceiptData => ({
+        receiptNumber: item.reference || `RD-RCT-${item.id}`,
+        date: item.paidDate || item.dueDate,
+        time: '11:00 AM',
+        customerName: record.customerName,
+        customerId: record.customerId,
+        customerPhone: record.customerPhone,
+        accountNumber: record.id,
+        productName: record.productCode ? `Recurring Deposit (${record.productCode})` : 'Recurring Deposit (आकर्षक आवर्त ठेव)',
+        productType: 'RD',
+        amount: item.amount,
+        paymentMethod: item.paymentMethod || 'Cash',
+        agentOrCashier: item.agent || item.recordedBy || 'Branch Counter',
+        reference: item.externalReference || item.reference,
+        narration: `RD installment ${item.id} collection (Due ${item.dueDate})`,
+        branch: record.branch,
+    });
+
+    return (
+        <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+            <section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`RD ${record.id}`}>
+                <div className="admin-modal-header">
+                    <div>
+                        <div className="eyebrow">RECURRING DEPOSIT / {record.id}</div>
+                        <h2>{record.customerName}</h2>
+                        <p>{record.customerId} · {record.customerPhone} · Customer-wise RD history</p>
+                    </div>
+                    <button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button>
+                </div>
+                <div className="customer-profile-summary">
+                    <div className="customer-avatar">{record.customerName.split(' ').map((part) => part[0]).join('')}</div>
+                    <div>
+                        <strong>{record.id}</strong>
+                        <span>{record.frequency} collection · due day {record.installmentDueDate}</span>
+                    </div>
+                    <StatusPill status={record.status} />
+                </div>
+                <div className="customer-detail-grid">
+                    <div><span>RD installment amount</span><strong>₹{record.monthlyAmount.toLocaleString('en-IN')}</strong></div>
+                    <div><span>Total planned deposit</span><strong>₹{totalDeposit.toLocaleString('en-IN')}</strong></div>
+                    {slabMaturity ? (
+                        <div>
+                            <span>Slab maturity payout (मिळणारी रक्कम)</span>
+                            <strong className="green-text">
+                                ₹{slabMaturity.toLocaleString('en-IN')}
+                                {slabMaturity > totalDeposit ? ` (+₹${(slabMaturity - totalDeposit).toLocaleString('en-IN')} व्याज)` : ''}
+                            </strong>
+                        </div>
+                    ) : null}
+                    <div><span>Paid installments</span><strong className="green-text">{paid}</strong></div>
+                    <div><span>Pending installments</span><strong className="orange-text">{pending}</strong></div>
+                    <div><span>Account status</span><strong>{record.status}</strong></div>
+                    <div><span>Opened on</span><strong>{record.openedOn}</strong></div>
+                    <div><span>Maturity date</span><strong>{record.maturityDate}</strong></div>
+                    <div><span>Product / branch</span><strong>{record.productCode ?? 'Not captured'} · {record.branch ?? 'Not captured'}</strong></div>
+                    <div><span>Tenure / installments</span><strong>{record.tenureMonths ?? 'Not captured'} months · {record.installmentCount ?? 'Not captured'} installments</strong></div>
+                    <div><span>Interest terms</span><strong>{record.interestMethod ?? 'Not captured'}{record.interestRate !== undefined ? ` · ${record.interestRate}%` : ''}</strong></div>
+                    <div><span>Nominee</span><strong>{record.nomineeName ?? 'Not captured'}{record.nomineePhone ? ` · ${record.nomineePhone}` : ''}</strong></div>
+                    <div><span>Maturity / penalty terms</span><strong>{record.maturityInstructions ?? 'Not captured'} · {record.penaltyTerms ?? 'Not captured'}</strong></div>
+                    <div><span>Channel / documents</span><strong>{record.openingChannel ?? 'Not captured'} · {record.documentReferences ?? 'Not captured'}</strong></div>
+                </div>
+
+                <section className="customer-subsection">
+                    <div className="customer-section-heading">
+                        <div>
+                            <h3>Installment collection history</h3>
+                            <p>Paid and pending entries with agent and receipt audit fields.</p>
+                        </div>
+                        <span>{record.installments.length} installments</span>
+                    </div>
+                    <div className="customer-transaction-list">
+                        {record.installments.map((item) => (
+                            <div className="customer-transaction-row" key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                                <div style={{ flex: 1 }}>
+                                    <strong>{item.id}</strong>
+                                    <span>Due {item.dueDate}{item.paidDate ? ` · Paid ${item.paidDate}` : ''}</span>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                    <b>₹{item.amount.toLocaleString('en-IN')}</b>
+                                    <small>{item.agent}{item.reference ? ` · Ref: ${item.reference}` : ''} · {item.paymentMethod ?? 'Cash'}</small>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <StatusPill status={item.status === 'Paid' ? 'Completed' : item.status === 'Overdue' ? 'Overdue' : 'Pending'} />
+                                    {item.status === 'Paid' ? (
+                                        <button
+                                            type="button"
+                                            className="secondary-button"
+                                            style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onViewReceipt(buildReceiptData(item));
+                                            }}
+                                            title="View / print official receipt"
+                                        >
+                                            <FileText size={13} /> Receipt
+                                        </button>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+
+                <div className="customer-detail-actions rd-detail-actions">
+                    <button className="secondary-button" onClick={onStatement}>
+                        <FileText size={15} /> View / export statement
+                    </button>
+                    <button className="secondary-button" onClick={onEdit}>Edit RD account</button>
+                    <button className="primary-button" onClick={onCollection}>
+                        <ArrowDownToLine size={15} /> Record installment
+                    </button>
+                </div>
+            </section>
+        </div>
+    );
 }
 
 export function RecurringDepositsPage() {
@@ -324,10 +500,13 @@ export function RecurringDepositsPage() {
     const [page, setPage] = useState(1);
     const [modal, setModal] = useState<'account' | 'collection' | 'detail' | null>(null);
     const [selected, setSelected] = useState<RDRecord | undefined>();
+    const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
+    const [statementOpen, setStatementOpen] = useState(false);
     const [toast, setToast] = useState('');
     const pageSize = 4;
     const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600); };
     const close = () => { setModal(null); setSelected(undefined); };
+
     useEffect(() => {
         let active = true;
         rdRepository
@@ -337,11 +516,13 @@ export function RecurringDepositsPage() {
             .finally(() => { if (active) setLoading(false); });
         return () => { active = false; };
     }, []);
+
     const filteredRows = rdRows.filter((row) => `${row.id} ${row.customerId} ${row.customerName} ${row.customerPhone} ${row.frequency} ${row.installmentDueDate} ${row.installments.map((item) => `${item.id} ${item.agent} ${item.reference ?? ''} ${item.dueDate}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()) && (statusFilter === 'All' || row.status === statusFilter));
     const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
     const visibleRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
     const paidCount = rdRows.reduce((total, row) => total + row.installments.filter((item) => item.status === 'Paid').length, 0);
     const pendingItems = rdRows.flatMap((row) => row.installments).filter((item) => item.status !== 'Paid');
+
     const saveAccount = async (input: RDInput) => {
         try {
             const record = await rdRepository.open(input as RdRepoInput);
@@ -353,18 +534,222 @@ export function RecurringDepositsPage() {
             notify(messageFor(reason, 'Unable to open the RD account on the backend.'));
         }
     };
+
     const saveCollection = async (input: RDCollectionInput) => {
         if (!selected) return;
         try {
             const record = await rdRepository.recordInstalment(selected.id, input as RdRepoCollectionInput);
             setRdRows((current) => current.map((row) => (row.id === selected.id ? record : row)));
-            close();
-            notify('RD installment recorded on the backend.');
+            setSelected(record);
+            setModal('detail');
+
+            // Generate and trigger official receipt modal immediately
+            const receiptNum = input.reference?.trim() || `RD-RCT-${Date.now().toString().slice(-6)}`;
+            const receiptData: ReceiptData = {
+                receiptNumber: receiptNum,
+                date: input.paidDate || new Date().toISOString().slice(0, 10),
+                time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                customerName: selected.customerName,
+                customerId: selected.customerId,
+                customerPhone: selected.customerPhone,
+                accountNumber: selected.id,
+                productName: selected.productCode ? `Recurring Deposit (${selected.productCode})` : 'Recurring Deposit (आकर्षक आवर्त ठेव)',
+                productType: 'RD',
+                amount: Number(input.amount),
+                paymentMethod: input.paymentMethod || 'Cash',
+                agentOrCashier: input.agent || 'Branch Counter',
+                reference: input.externalReference || input.reference,
+                narration: `RD installment collected for account ${selected.id}`,
+                branch: selected.branch,
+            };
+            setActiveReceipt(receiptData);
+            notify('RD installment recorded successfully! Receipt generated.');
         } catch (reason) {
             notify(messageFor(reason, 'Unable to record the RD installment on the backend.'));
         }
     };
+
     const openDetail = (record: RDRecord) => { setSelected(record); setModal('detail'); };
-    return <div className="admin-page"><div className="page-heading"><div><div className="eyebrow">OPERATIONS / RECURRING DEPOSITS</div><h1>Recurring Deposits</h1><p>Manage RD accounts, installment schedules, doorstep collections and customer history.</p></div><button className="primary-button" onClick={() => setModal('account')}><Plus size={16} /> Open RD account</button></div><SummaryStrip items={[{ label: 'Active RD accounts', value: String(rdRows.filter((row) => row.status === 'Active').length), tone: 'green' }, { label: 'Paid installments', value: String(paidCount) }, { label: 'Pending installments', value: String(pendingItems.length), tone: 'orange' }, { label: 'Collection due', value: `₹${pendingItems.reduce((total, item) => total + item.amount, 0).toLocaleString('en-IN')}`, tone: 'red' }]} /><section className="panel table-panel"><div className="filter-bar"><div className="filter-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search RD, customer, agent or receipt..." aria-label="Search recurring deposits" /></div><select className="filter-button customer-status-filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as 'All' | Status); setPage(1); }} aria-label="Filter RD accounts by status"><option value="All">All statuses</option><option value="Active">Active</option><option value="Pending">Pending</option><option value="Completed">Completed</option><option value="Review">Review</option><option value="Inactive">Inactive</option></select><button className="filter-button" onClick={() => notify('Date range selector is ready for local RD data.')}><CalendarDays size={15} /> Date range</button><button className="filter-button" onClick={() => { setStatusFilter('Pending'); setPage(1); notify('Showing RD accounts with pending installments.'); }}><SlidersHorizontal size={15} /> Filters</button><button className="icon-button export-button" onClick={() => notify(`${filteredRows.length} RD account records prepared for export.`)} aria-label="Export RD data"><Download size={16} /></button></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>RD account / customer</th><th>Installment</th><th>Schedule</th><th>Paid / pending</th><th>Status</th><th aria-label="Actions" /></tr></thead><tbody>{loading ? <tr><td className="empty-state" colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#888' }}><Loader2 size={24} className="spin" style={{ margin: '0 auto 10px', display: 'block', opacity: 0.5 }} /> Loading recurring deposits...</td></tr> : visibleRows.length ? visibleRows.map((row) => { const paid = row.installments.filter((item) => item.status === 'Paid').length; const pending = row.installments.filter((item) => item.status !== 'Paid').length; return <tr key={row.id} onClick={() => openDetail(row)}><td><strong>{row.customerName}</strong><span>{row.customerId} · {row.customerPhone}</span><small>{row.id}</small></td><td className="table-amount">₹{row.monthlyAmount.toLocaleString('en-IN')}</td><td className="table-muted">{row.frequency} · due {row.installmentDueDate}<br />Matures {row.maturityDate}</td><td className="rd-counts"><span className="green-text">{paid} paid</span><span className="orange-text">{pending} pending</span></td><td><StatusPill status={row.status} /></td><td><button className="row-action" onClick={(event) => { event.stopPropagation(); openDetail(row); }} aria-label={`Open ${row.id}`}><ChevronRight size={16} /></button></td></tr>; }) : <tr><td className="empty-state" colSpan={6}>No RD accounts match the current search and status filter.</td></tr>}</tbody></table></div><Pagination page={page} pageSize={pageSize} totalItems={filteredRows.length} itemName="deposits" setPage={setPage} />
-</section>{modal === 'account' && <RDModal mode="account" onClose={close} onSave={(input) => saveAccount(input as RDInput)} />}{modal === 'collection' && selected && <RDModal mode="collection" record={selected} onClose={close} onSave={(input) => saveCollection(input as RDCollectionInput)} />}{modal === 'detail' && selected && <RDDetail record={rdRows.find((row) => row.id === selected.id) ?? selected} onClose={close} onEdit={() => setModal('account')} onCollection={() => setModal('collection')} onToast={notify} />}{toast && <div className="admin-toast"><CheckCircle2 size={15} />{toast}</div>}</div>;
+
+    // Statement data transformation for selected account
+    const statementAccountMeta: StatementAccountMeta | null = selected ? {
+        accountNumber: selected.id,
+        customerName: selected.customerName,
+        customerId: selected.customerId,
+        customerPhone: selected.customerPhone,
+        productName: selected.productCode ? `Recurring Deposit (${selected.productCode})` : 'Recurring Deposit (आकर्षक आवर्त ठेव)',
+        productType: 'RD',
+        branch: selected.branch,
+        currentBalance: selected.installments.filter((i) => i.status === 'Paid').reduce((s, i) => s + i.amount, 0),
+        openedOn: selected.openedOn,
+    } : null;
+
+    const statementEntries: StatementEntry[] = useMemo(() => {
+        if (!selected) return [];
+        let runningBalance = 0;
+        return selected.installments.map((inst) => {
+            const isPaid = inst.status === 'Paid';
+            if (isPaid) runningBalance += inst.amount;
+            return {
+                id: inst.id,
+                date: inst.paidDate || inst.dueDate,
+                description: `RD Installment #${inst.id} (${inst.status})`,
+                reference: inst.reference,
+                receiptNumber: inst.reference || inst.id,
+                credit: isPaid ? inst.amount : undefined,
+                balance: runningBalance,
+                paymentMethod: inst.paymentMethod || 'Cash',
+                agentOrCashier: inst.agent || 'Branch Counter',
+                status: inst.status,
+            };
+        });
+    }, [selected]);
+
+    return (
+        <div className="admin-page">
+            <div className="page-heading">
+                <div>
+                    <div className="eyebrow">OPERATIONS / RECURRING DEPOSITS</div>
+                    <h1>Recurring Deposits</h1>
+                    <p>Manage RD accounts, installment schedules, doorstep collections and customer history.</p>
+                </div>
+                <button className="primary-button" onClick={() => setModal('account')}>
+                    <Plus size={16} /> Open RD account
+                </button>
+            </div>
+            <SummaryStrip
+                items={[
+                    { label: 'Active RD accounts', value: String(rdRows.filter((row) => row.status === 'Active').length), tone: 'green' },
+                    { label: 'Paid installments', value: String(paidCount) },
+                    { label: 'Pending installments', value: String(pendingItems.length), tone: 'orange' },
+                    { label: 'Collection due', value: `₹${pendingItems.reduce((total, item) => total + item.amount, 0).toLocaleString('en-IN')}`, tone: 'red' },
+                ]}
+            />
+            <section className="panel table-panel">
+                <div className="filter-bar">
+                    <div className="filter-search">
+                        <Search size={16} />
+                        <input
+                            value={search}
+                            onChange={(event) => { setSearch(event.target.value); setPage(1); }}
+                            placeholder="Search RD, customer, agent or receipt..."
+                            aria-label="Search recurring deposits"
+                        />
+                    </div>
+                    <select
+                        className="filter-button customer-status-filter"
+                        value={statusFilter}
+                        onChange={(event) => { setStatusFilter(event.target.value as 'All' | Status); setPage(1); }}
+                        aria-label="Filter RD accounts by status"
+                    >
+                        <option value="All">All statuses</option>
+                        <option value="Active">Active</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Review">Review</option>
+                        <option value="Inactive">Inactive</option>
+                    </select>
+                    <button className="filter-button" onClick={() => notify('Date range selector is ready for local RD data.')}>
+                        <CalendarDays size={15} /> Date range
+                    </button>
+                    <button className="filter-button" onClick={() => { setStatusFilter('Pending'); setPage(1); notify('Showing RD accounts with pending installments.'); }}>
+                        <SlidersHorizontal size={15} /> Filters
+                    </button>
+                    <button className="icon-button export-button" onClick={() => notify(`${filteredRows.length} RD account records prepared for export.`)} aria-label="Export RD data">
+                        <Download size={16} />
+                    </button>
+                </div>
+                <div className="data-table-wrap">
+                    <table className="data-table">
+                        <thead>
+                            <tr>
+                                <th>RD account / customer</th>
+                                <th>Installment</th>
+                                <th>Schedule</th>
+                                <th>Paid / pending</th>
+                                <th>Status</th>
+                                <th aria-label="Actions" />
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {loading ? (
+                                <tr>
+                                    <td className="empty-state" colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#888' }}>
+                                        <Loader2 size={24} className="spin" style={{ margin: '0 auto 10px', display: 'block', opacity: 0.5 }} /> Loading recurring deposits...
+                                    </td>
+                                </tr>
+                            ) : visibleRows.length ? (
+                                visibleRows.map((row) => {
+                                    const paid = row.installments.filter((item) => item.status === 'Paid').length;
+                                    const pending = row.installments.filter((item) => item.status !== 'Paid').length;
+                                    return (
+                                        <tr key={row.id} onClick={() => openDetail(row)}>
+                                            <td>
+                                                <strong>{row.customerName}</strong>
+                                                <span>{row.customerId} · {row.customerPhone}</span>
+                                                <small>{row.id}</small>
+                                            </td>
+                                            <td className="table-amount">
+                                                ₹{row.monthlyAmount.toLocaleString('en-IN')}
+                                                {calculateRdMaturity(row.monthlyAmount, row.tenureMonths ?? 0) ? (
+                                                    <span style={{ display: 'block', fontSize: '0.72rem', color: '#16a34a', fontWeight: 600 }}>
+                                                        Matures: ₹{calculateRdMaturity(row.monthlyAmount, row.tenureMonths ?? 0)!.toLocaleString('en-IN')}
+                                                    </span>
+                                                ) : null}
+                                            </td>
+                                            <td className="table-muted">
+                                                {row.frequency} · due {row.installmentDueDate}<br />
+                                                Matures {row.maturityDate}
+                                            </td>
+                                            <td className="rd-counts">
+                                                <span className="green-text">{paid} paid</span>
+                                                <span className="orange-text">{pending} pending</span>
+                                            </td>
+                                            <td><StatusPill status={row.status} /></td>
+                                            <td>
+                                                <button className="row-action" onClick={(event) => { event.stopPropagation(); openDetail(row); }} aria-label={`Open ${row.id}`}>
+                                                    <ChevronRight size={16} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            ) : (
+                                <tr><td className="empty-state" colSpan={6}>No RD accounts match the current search and status filter.</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+                <Pagination page={page} pageSize={pageSize} totalItems={filteredRows.length} itemName="deposits" setPage={setPage} />
+            </section>
+
+            {modal === 'account' && <RDModal mode="account" onClose={close} onSave={(input) => saveAccount(input as RDInput)} />}
+            {modal === 'collection' && selected && <RDModal mode="collection" record={selected} onClose={close} onSave={(input) => saveCollection(input as RDCollectionInput)} />}
+            {modal === 'detail' && selected && (
+                <RDDetail
+                    record={rdRows.find((row) => row.id === selected.id) ?? selected}
+                    onClose={close}
+                    onEdit={() => setModal('account')}
+                    onCollection={() => setModal('collection')}
+                    onStatement={() => setStatementOpen(true)}
+                    onViewReceipt={(receipt) => setActiveReceipt(receipt)}
+                />
+            )}
+            {statementOpen && statementAccountMeta && (
+                <AccountStatementModal
+                    account={statementAccountMeta}
+                    entries={statementEntries}
+                    onClose={() => setStatementOpen(false)}
+                    onViewReceipt={(receipt) => setActiveReceipt(receipt)}
+                />
+            )}
+            {activeReceipt && (
+                <TransactionReceiptModal
+                    receipt={activeReceipt}
+                    onClose={() => setActiveReceipt(null)}
+                />
+            )}
+            {toast && <div className="admin-toast"><CheckCircle2 size={15} />{toast}</div>}
+        </div>
+    );
 }
