@@ -13,6 +13,8 @@ export function clearBackendOptionsCache(): void {
     agentNameRequest = null;
     branchNameCache = null;
     branchNameRequest = null;
+    customerCache = null;
+    customerRequest = null;
 }
 
 export function loadAgentNames(): Promise<string[]> {
@@ -54,16 +56,19 @@ export let branchNameCache: string[] | null = null;
 export let branchNameRequest: Promise<string[]> | null = null;
 
 export function loadBranchNames(): Promise<string[]> {
-    if (branchNameCache) return Promise.resolve(branchNameCache);
+    if (branchNameCache && branchNameCache.length > 0) return Promise.resolve(branchNameCache);
     if (!branchNameRequest) {
         branchNameRequest = settingsRepository
             .branches()
             .then((rows) => {
-                branchNameCache = rows.map((row) => row.name).filter((name) => name.trim().length > 0);
-                return branchNameCache;
+                const names = rows.map((row) => row.name).filter((name) => name.trim().length > 0);
+                branchNameCache = names;
+                branchNameRequest = null;
+                return names;
             })
             .catch(() => {
                 branchNameRequest = null;
+                branchNameCache = null;
                 return [] as string[];
             });
     }
@@ -90,16 +95,18 @@ export let customerCache: CustomerOption[] | null = null;
 export let customerRequest: Promise<CustomerOption[]> | null = null;
 
 export function loadCustomers(): Promise<CustomerOption[]> {
-    if (customerCache) return Promise.resolve(customerCache);
+    if (customerCache && customerCache.length > 0) return Promise.resolve(customerCache);
     if (!customerRequest) {
         customerRequest = customerRepository
             .options('', 1000)
             .then((rows) => {
                 customerCache = rows;
-                return customerCache;
+                customerRequest = null;
+                return rows;
             })
             .catch(() => {
                 customerRequest = null;
+                customerCache = null;
                 return [] as CustomerOption[];
             });
     }

@@ -304,8 +304,9 @@ export function ReverseActionModal({ record, onClose, onSave }: { record: Collec
 
 export function CollectionDetail({ record, onClose, onToast, onReview, onAllocate, onDeleteDuplicate, onReverse }: { record: CollectionRecord; onClose: () => void; onToast: (message: string) => void; onReview: () => void; onAllocate: () => void; onDeleteDuplicate: () => void; onReverse: () => void }) {
     const { hasRole } = useAuth();
-    const isMd = hasRole('managing_director');
-    const canDeleteDuplicate = isMd || hasRole('manager');
+    const canReviewOrAllocate = hasRole('managing_director', 'president', 'vice_president', 'manager');
+    const canReverse = hasRole('managing_director', 'president');
+    const canDeleteDuplicate = hasRole('managing_director', 'president', 'manager');
     const metadata = [
         ['Receipt number', record.id],
         ['Collection id', record.collectionId],
@@ -341,7 +342,7 @@ export function CollectionDetail({ record, onClose, onToast, onReview, onAllocat
         onToast(`Exported ${record.events.length} audit events.`);
     };
 
-    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`Collection ${record.id}`}><div className="admin-modal-header"><div><div className="eyebrow">COLLECTION ENTRY / {record.id}</div><h2>{record.customerName}</h2><p>{record.customerId} · {record.customerPhone} · {record.collectionType} · {formatAmount(record.amount)}</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><div className="customer-modal-content"><div className="customer-section"><div className="customer-section-heading"><h3>Receipt & entry details</h3><StatusPill status={record.status} /></div><div className="customer-metadata-grid">{metadata.map(([label, value]) => <div className="customer-metadata-item" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></div><div className="customer-section"><div className="customer-section-heading"><h3>Audit trail</h3><span>{record.events.length} events</span></div><div className="customer-timeline">{record.events.map((event) => <div className="customer-timeline-item" key={event.id}><div><strong>{event.type}</strong><span>{event.performedBy} · {event.date}</span></div><p>{event.note}</p></div>)}</div></div></div><div className="customer-detail-actions">{isMd && <button className="secondary-button" onClick={onReview}>Review collection</button>}{isMd && <button className="secondary-button" onClick={onAllocate}>Allocate short payment</button>}{canDeleteDuplicate && record.status !== 'Completed' && <button className="secondary-button" onClick={onDeleteDuplicate}>Remove duplicate</button>}{isMd && record.status === 'Completed' && <button className="secondary-button" onClick={onReverse}>Reverse collection</button>}<button className="secondary-button" onClick={exportHistory}>Export history</button><button className="secondary-button" onClick={onClose}>Close</button></div></section></div>;
+    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`Collection ${record.id}`}><div className="admin-modal-header"><div><div className="eyebrow">COLLECTION ENTRY / {record.id}</div><h2>{record.customerName}</h2><p>{record.customerId} · {record.customerPhone} · {record.collectionType} · {formatAmount(record.amount)}</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><div className="customer-modal-content"><div className="customer-section"><div className="customer-section-heading"><h3>Receipt & entry details</h3><StatusPill status={record.status} /></div><div className="customer-metadata-grid">{metadata.map(([label, value]) => <div className="customer-metadata-item" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></div><div className="customer-section"><div className="customer-section-heading"><h3>Audit trail</h3><span>{record.events.length} events</span></div><div className="customer-timeline">{record.events.map((event) => <div className="customer-timeline-item" key={event.id}><div><strong>{event.type}</strong><span>{event.performedBy} · {event.date}</span></div><p>{event.note}</p></div>)}</div></div></div><div className="customer-detail-actions">{canReviewOrAllocate && <button className="secondary-button" onClick={onReview}>Review collection</button>}{canReviewOrAllocate && <button className="secondary-button" onClick={onAllocate}>Allocate short payment</button>}{canDeleteDuplicate && record.status !== 'Completed' && <button className="secondary-button" onClick={onDeleteDuplicate}>Remove duplicate</button>}{canReverse && record.status === 'Completed' && <button className="secondary-button" onClick={onReverse}>Reverse collection</button>}<button className="secondary-button" onClick={exportHistory}>Export history</button><button className="secondary-button" onClick={onClose}>Close</button></div></section></div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +351,7 @@ export function CollectionDetail({ record, onClose, onToast, onReview, onAllocat
 
 export function ScopedCollectionsPage() {
     const { hasRole } = useAuth();
-    const isMd = hasRole('managing_director');
+    const canRecordEntry = hasRole('managing_director', 'president', 'vice_president', 'manager');
     const [collectionRows, setCollectionRows] = useState<CollectionRecord[]>([]);
     const [totalAmount, setTotalAmount] = useState<string>('0');
     const [loading, setLoading] = useState(true);
@@ -467,7 +468,7 @@ export function ScopedCollectionsPage() {
         notify(`Exported ${collectionRows.length} collections.`);
     };
 
-    return <div className="admin-page"><div className="page-heading"><div><div className="eyebrow">OPERATIONS / DOORSTEP COLLECTIONS</div><h1>Collections</h1><p>Review synced doorstep collections, record emergency entries and resolve disputes against the audit trail.</p></div>{isMd && <button className="primary-button" onClick={() => setModal('entry')}><ArrowDownToLine size={16} /> Record collection</button>}</div>
+    return <div className="admin-page"><div className="page-heading"><div><div className="eyebrow">OPERATIONS / DOORSTEP COLLECTIONS</div><h1>Collections</h1><p>Review synced doorstep collections, record emergency entries and resolve disputes against the audit trail.</p></div>{canRecordEntry && <button className="primary-button" onClick={() => setModal('entry')}><ArrowDownToLine size={16} /> Record collection</button>}</div>
         <SummaryStrip items={[{ label: 'Total collected', value: formatAmount(totalAmount), tone: 'green' }, { label: 'Entries in view', value: String(collectionRows.length) }, { label: 'Pending review', value: String(collectionRows.filter((row) => row.status === 'Pending' || row.status === 'Review').length), tone: 'orange' }, { label: 'Value awaiting review', value: formatAmount(pendingAmount), tone: 'orange' }]} />
         <section className="panel table-panel">
             <div className="filter-bar">
@@ -488,7 +489,7 @@ export function ScopedCollectionsPage() {
             </div>
             <Pagination page={page} pageSize={pageSize} totalItems={collectionRows.length} itemName="collections" setPage={setPage} />
         </section>
-        {modal === 'entry' && isMd && <EmergencyApprovalModal onClose={close} onSave={submitEmergency} />}
+        {modal === 'entry' && canRecordEntry && <EmergencyApprovalModal onClose={close} onSave={submitEmergency} />}
         {modal === 'review' && selected && <ReviewActionModal record={selected} onClose={close} onSave={submitReview} />}
         {modal === 'allocate' && selected && <AllocateActionModal record={selected} onClose={close} onSave={submitAllocation} />}
         {modal === 'delete-duplicate' && selected && <DeleteDuplicateActionModal record={selected} onClose={close} onSave={submitDeleteDuplicate} />}

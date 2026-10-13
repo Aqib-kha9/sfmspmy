@@ -5,6 +5,7 @@ import { CheckCircle2, Filter, LockKeyhole, Search, ShieldCheck, UsersRound } fr
 import { securityRepository } from '../services/operations/securityApiRepository';
 import { messageFor } from '../services/operations/helpers';
 import { type Status, StatusPill, SummaryStrip, DetailCard } from '../components/adminShared';
+import { useAuth } from '../../auth/AuthContext';
 
 export type SecurityPolicy = {
     id: string;
@@ -60,6 +61,7 @@ export type SecurityAuditEvent = {
 };
 
 export function ScopedSecurityPage() {
+    const { can } = useAuth();
     const [policies, setPolicies] = useState<SecurityPolicy[]>([]);
     const [roles, setRoles] = useState<SecurityRole[]>([]);
     const [sessions, setSessions] = useState<SecuritySession[]>([]);
@@ -82,11 +84,14 @@ export function ScopedSecurityPage() {
         securityRepository.listPolicies().then((rows) => { if (active) setPolicies(rows); }).catch((reason: unknown) => { if (active) notify(messageFor(reason, 'Unable to load security policies.')); });
         securityRepository.listRoles().then((rows) => { if (active) setRoles(rows); }).catch((reason: unknown) => { if (active) notify(messageFor(reason, 'Unable to load role permissions.')); });
         securityRepository.listSessions().then((rows) => { if (active) setSessions(rows); }).catch((reason: unknown) => { if (active) notify(messageFor(reason, 'Unable to load active sessions.')); });
-        securityRepository.listAuditEvents().then((rows) => { if (active) setAuditEvents(rows); }).catch((reason: unknown) => { if (active) notify(messageFor(reason, 'Unable to load audit events.')); });
+        if (can('security.audit.read')) {
+            securityRepository.listAuditEvents().then((rows) => { if (active) setAuditEvents(rows); }).catch((reason: unknown) => { if (active) notify(messageFor(reason, 'Unable to load audit events.')); });
+        }
         return () => { active = false; };
-    }, []);
+    }, [can]);
 
     const refreshAudit = async () => {
+        if (!can('security.audit.read')) return;
         try {
             const events = await securityRepository.listAuditEvents();
             setAuditEvents(events);

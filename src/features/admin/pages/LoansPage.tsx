@@ -670,8 +670,8 @@ export function LoanDetail({ record, onClose, onCollection, onLifecycle, onAppro
     // The backend gates each lifecycle action by role / permission (see
     // loans.routes.ts), so the UI mirrors the same authority instead of showing
     // buttons that would always fail with a 403.
-    const roleCanApprove = hasRole('president', 'managing_director');
-    const roleCanComplete = hasRole('president');
+    const roleCanApprove = hasRole('president', 'vice_president', 'managing_director');
+    const roleCanComplete = hasRole('president', 'vice_president', 'managing_director');
     const roleCanWriteLoan = can('loans.write');
     const isOpenLoan = record.lifecycle !== 'Settled' && record.lifecycle !== 'Written off' && record.lifecycle !== 'Completed';
 

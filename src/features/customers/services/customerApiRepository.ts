@@ -1,6 +1,7 @@
 import { apiClient } from '../../../lib/api/apiClient';
 import { ApiError } from '../../../lib/api/client';
 import type {
+    BranchView,
     CreateCustomerInput,
     CustomerDetailView,
     CustomerListResult,
@@ -313,13 +314,30 @@ function messageFor(error: unknown, fallback: string): string {
 // ---------------------------------------------------------------------------
 
 export class ApiCustomerRepository implements CustomerRepository {
-    /** Resolves the acting staff member's branch for create calls. */
-    private branchId(): string {
-        const profile = getStoredProfile();
-        if (!profile?.branchId) {
-            throw new Error('Your session has no branch assignment. Sign in again before registering customers.');
+    /** Resolves the branch for customer registration from the form selection, staff profile, or primary active branch. */
+    private async resolveBranchId(inputBranch?: string): Promise<string> {
+        let branches: BranchView[] = [];
+        try {
+            branches = await settingsRepository.branches();
+        } catch {
+            // best-effort
         }
-        return profile.branchId;
+        if (inputBranch && inputBranch.trim().length > 0) {
+            const trimmed = inputBranch.trim().toLowerCase();
+            const match = branches.find(
+                (b) => b.id.toLowerCase() === trimmed || b.name.toLowerCase() === trimmed || b.code.toLowerCase() === trimmed,
+            );
+            if (match) return match.id;
+        }
+        const profile = getStoredProfile();
+        if (profile?.branchId) {
+            return profile.branchId;
+        }
+        const activeBranch = branches.find((b) => b.isActive) ?? branches[0];
+        if (activeBranch) {
+            return activeBranch.id;
+        }
+        throw new Error('No active branch found to assign this customer to. Please verify branches in Settings.');
     }
 
     /** Resolves the raw customer UUID from the display id shown in the UI. */
@@ -465,7 +483,8 @@ export class ApiCustomerRepository implements CustomerRepository {
     }
 
     async create(input: CustomerInput): Promise<Customer> {
-        const payload = toCreatePayload(input, this.branchId());
+        const branchId = await this.resolveBranchId(input.branch);
+        const payload = toCreatePayload(input, branchId);
         try {
             const created = await apiClient.request<CustomerDetailView>('/customers', { method: 'POST', body: payload });
             // A nominee is a first-class sub-resource; attach it when captured.
