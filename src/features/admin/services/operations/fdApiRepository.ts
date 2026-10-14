@@ -176,6 +176,7 @@ export interface FdRepository {
     createRateCard(input: CreateFdRateCardInput): Promise<RateCardView>;
     lien(id: string, action: 'request' | 'release', lienAmount?: number, reason?: string): Promise<FDRecord>;
     closeEarly(id: string, reason: string): Promise<FDRecord>;
+    close(id: string, reason: string): Promise<void>;
     maturityAction(id: string, input: FdMaturityActionInput): Promise<FDRecord>;
     loanAgainstFd(id: string, input: FdLoanAgainstInput): Promise<LoanRefView>;
 }
@@ -735,6 +736,14 @@ export class ApiFdRepository implements FdRepository {
         this.remember(result.account);
         const events = await this.historyOf(uuid);
         return this.present(result.account, events);
+    }
+
+    async close(id: string, reason: string): Promise<void> {
+        const uuid = await this.uuidOf(id);
+        await apiClient.request(`/fd/accounts/${uuid}`, {
+            method: 'DELETE',
+            body: { reason },
+        });
     }
 
     async maturityAction(id: string, input: FdMaturityActionInput): Promise<FDRecord> {

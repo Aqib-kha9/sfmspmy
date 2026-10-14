@@ -192,6 +192,8 @@ export interface DepositsRepository {
     approve(id: string, note?: string): Promise<DepositRecord>;
     freeze(id: string, reason: string): Promise<DepositRecord>;
     close(id: string, reason: string): Promise<DepositRecord>;
+    delete(id: string, reason: string): Promise<void>;
+    reverseTransaction(accountId: string, transactionId: string, reason: string): Promise<DepositRecord>;
     reopen(id: string, note?: string): Promise<DepositRecord>;
     statement(id: string, query?: DepositStatementQuery): Promise<DepositStatement>;
 }
@@ -672,6 +674,28 @@ export class ApiDepositsRepository implements DepositsRepository {
         });
         this.remember(view);
         return this.present(view, await this.transactionsOf(uuid));
+    }
+
+    async delete(id: string, reason: string): Promise<void> {
+        const uuid = await this.uuidOf(id);
+        await apiClient.request(`/deposits/accounts/${uuid}`, {
+            method: 'DELETE',
+            body: { reason },
+        });
+    }
+
+    async reverseTransaction(accountId: string, transactionId: string, reason: string): Promise<DepositRecord> {
+        const uuid = await this.uuidOf(accountId);
+        await apiClient.request(`/deposits/accounts/${uuid}/adjustments`, {
+            method: 'POST',
+            body: {
+                originalTransactionId: transactionId,
+                adjustmentType: 'reversal',
+                reason,
+                customerConfirmed: true,
+            },
+        });
+        return this.detail(uuid);
     }
 
     async reopen(id: string, note?: string): Promise<DepositRecord> {

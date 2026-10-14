@@ -129,6 +129,7 @@ export interface RdRepository {
     waivePenalty(id: string, penaltyId: string, reason: string, amount?: number): Promise<RDRecord>;
     reschedule(id: string, input: RdRescheduleInput): Promise<RDRecord>;
     closeEarly(id: string, reason: string): Promise<RDRecord>;
+    cancel(id: string, reason: string): Promise<void>;
     surplusTransfer(id: string, loanId: string, amount: number, reason?: string): Promise<RDRecord>;
 }
 
@@ -625,6 +626,14 @@ async closeEarly(id: string, reason: string): Promise<RDRecord> {
         this.schemeOf(result.account.schemeId),
     ]);
     return toRecord(result.account, installments, scheme);
+}
+
+async cancel(id: string, reason: string): Promise<void> {
+    const uuid = await this.uuidOf(id);
+    await apiClient.request(`/rd/accounts/${uuid}`, {
+        method: 'DELETE',
+        body: { reason },
+    });
 }
 
 async surplusTransfer(id: string, loanId: string, amount: number, reason?: string): Promise<RDRecord> {

@@ -3,7 +3,8 @@
 import { Pagination } from '../../../components/ui/Pagination';
 import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { ArrowDownToLine, CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, Pencil, Plus, Search, SlidersHorizontal, Table, TrendingUp } from 'lucide-react';
+import { ArrowDownToLine, AlertTriangle, CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, Pencil, Plus, Search, SlidersHorizontal, Table, Trash2, TrendingUp } from 'lucide-react';
+import { Modal } from '../../../components/overlays/Modal';
 import { rdRepository } from '../services/operations/rdApiRepository';
 import type { RDInput as RdRepoInput, RDCollectionInput as RdRepoCollectionInput, SchemeView as RdSchemeView } from '../services/operations/rdApiRepository';
 import { customerRepository } from '../../customers/services/customerApiRepository';
@@ -361,6 +362,7 @@ export function RDDetail({
     onCollection,
     onStatement,
     onViewReceipt,
+    onCancel,
 }: {
     record: RDRecord;
     onClose: () => void;
@@ -368,6 +370,7 @@ export function RDDetail({
     onCollection: () => void;
     onStatement: () => void;
     onViewReceipt: (receipt: ReceiptData) => void;
+    onCancel?: () => void;
 }) {
     const paid = record.installments.filter((item) => item.status === 'Paid').length;
     const pending = record.installments.filter((item) => item.status !== 'Paid').length;
@@ -482,12 +485,91 @@ export function RDDetail({
                     <button className="secondary-button" onClick={onStatement}>
                         <FileText size={15} /> View / export statement
                     </button>
+                    {onCancel && (
+                        <button className="secondary-button" style={{ color: '#dc2626' }} onClick={onCancel}>
+                            <Trash2 size={15} /> Cancel / Close account
+                        </button>
+                    )}
                     <button className="secondary-button" onClick={onEdit}>Edit RD account</button>
                     <button className="primary-button" onClick={onCollection}>
                         <ArrowDownToLine size={15} /> Record installment
                     </button>
                 </div>
             </section>
+        </div>
+    );
+}
+
+function RDCancelModal({
+    record,
+    onClose,
+    onConfirm,
+}: {
+    record: RDRecord;
+    onClose: () => void;
+    onConfirm: (reason: string) => Promise<void>;
+}) {
+    const [reason, setReason] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleSubmit = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!reason.trim()) {
+            setError('Please enter a cancellation reason.');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            await onConfirm(reason.trim());
+        } catch (err: any) {
+            setError(err.message || 'Failed to cancel RD account');
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="admin-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+            <div className="admin-modal" style={{ maxWidth: '480px' }} role="dialog">
+                <div className="admin-modal-header">
+                    <div>
+                        <div className="eyebrow" style={{ color: '#dc2626' }}>CLOSE / CANCEL RD ACCOUNT</div>
+                        <h2>Cancel RD Account</h2>
+                        <p>{record.id} · {record.customerName}</p>
+                    </div>
+                    <button className="icon-button" onClick={onClose} disabled={submitting}>×</button>
+                </div>
+                <form onSubmit={handleSubmit} style={{ padding: '20px' }}>
+                    <div style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '8px', padding: '12px', marginBottom: '16px', display: 'flex', gap: '10px' }}>
+                        <AlertTriangle size={20} color="#dc2626" style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div style={{ fontSize: '0.85rem', color: '#991b1b', lineHeight: 1.4 }}>
+                            <strong>Warning:</strong> Cancelling this recurring deposit account will mark all uncollected installments as waived, release any standing instructions, and close the account.
+                        </div>
+                    </div>
+                    {error && (
+                        <div style={{ color: '#dc2626', fontSize: '0.85rem', marginBottom: '12px', background: '#fef2f2', padding: '8px 12px', borderRadius: '6px' }}>
+                            {error}
+                        </div>
+                    )}
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                        Reason for Cancellation / Closure <Req />
+                    </label>
+                    <textarea
+                        value={reason}
+                        onChange={(e) => { setReason(e.target.value); setError(''); }}
+                        placeholder="e.g. Customer requested early closure, account opened in error, customer profile deleted..."
+                        rows={3}
+                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '0.9rem' }}
+                        required
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+                        <button type="button" className="secondary-button" onClick={onClose} disabled={submitting}>Cancel</button>
+                        <button type="submit" className="primary-button" style={{ background: '#dc2626', borderColor: '#dc2626', color: '#fff' }} disabled={submitting}>
+                            {submitting ? 'Cancelling...' : 'Confirm Account Cancellation'}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     );
 }
@@ -500,12 +582,29 @@ export function RecurringDepositsPage() {
     const [page, setPage] = useState(1);
     const [modal, setModal] = useState<'account' | 'collection' | 'detail' | null>(null);
     const [selected, setSelected] = useState<RDRecord | undefined>();
+    const [cancelTarget, setCancelTarget] = useState<RDRecord | null>(null);
     const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
     const [statementOpen, setStatementOpen] = useState(false);
     const [toast, setToast] = useState('');
     const pageSize = 4;
     const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600); };
     const close = () => { setModal(null); setSelected(undefined); };
+
+    const confirmCancelAccount = async (reason: string) => {
+        if (!cancelTarget) return;
+        try {
+            await rdRepository.cancel(cancelTarget.id, reason);
+            setRdRows((current) => current.filter((r) => r.id !== cancelTarget.id));
+            if (selected?.id === cancelTarget.id) {
+                close();
+            }
+            setCancelTarget(null);
+            notify(`RD account ${cancelTarget.id} has been cancelled and closed.`);
+        } catch (err) {
+            notify(messageFor(err, 'Unable to cancel the RD account on the backend.'));
+            throw err;
+        }
+    };
 
     useEffect(() => {
         let active = true;
@@ -716,6 +815,15 @@ export function RecurringDepositsPage() {
                                                     >
                                                         <Pencil size={15} />
                                                     </button>
+                                                    <button
+                                                        className="row-action"
+                                                        title="Cancel / close RD account"
+                                                        onClick={(event) => { event.stopPropagation(); setCancelTarget(row); }}
+                                                        aria-label={`Cancel ${row.id}`}
+                                                        style={{ color: '#dc2626' }}
+                                                    >
+                                                        <Trash2 size={15} />
+                                                    </button>
                                                     <button className="row-action" onClick={(event) => { event.stopPropagation(); openDetail(row); }} aria-label={`Open ${row.id}`} title="View details">
                                                         <ChevronRight size={16} />
                                                     </button>
@@ -743,6 +851,14 @@ export function RecurringDepositsPage() {
                     onCollection={() => setModal('collection')}
                     onStatement={() => setStatementOpen(true)}
                     onViewReceipt={(receipt) => setActiveReceipt(receipt)}
+                    onCancel={() => setCancelTarget(selected)}
+                />
+            )}
+            {cancelTarget && (
+                <RDCancelModal
+                    record={cancelTarget}
+                    onClose={() => setCancelTarget(null)}
+                    onConfirm={confirmCancelAccount}
                 />
             )}
             {statementOpen && statementAccountMeta && (

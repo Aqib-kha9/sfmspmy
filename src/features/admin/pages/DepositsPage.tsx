@@ -2,7 +2,7 @@
 
 import { Pagination } from '../../../components/ui/Pagination';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, LockKeyhole, Pencil, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { AlertTriangle, CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, LockKeyhole, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { depositsRepository } from '../services/operations/depositsApiRepository';
 import type { DepositInput as DepositRepoInput, DepositTransactionInput as DepositRepoTransactionInput, DepositRecord as DepositRecordView, DepositTransaction as DepositTransactionView, DepositStatement, DepositProduct, DepositUpdateInput, DepositStatementQuery } from '../services/operations/depositsApiRepository';
 import { customerRepository } from '../../customers/services/customerApiRepository';
@@ -211,6 +211,178 @@ export function DepositEditModal({ record, onClose, onSave }: { record: DepositR
     </Modal>;
 }
 
+export function DepositDeleteModal({
+    record,
+    onClose,
+    onConfirm,
+}: {
+    record: DepositRecord;
+    onClose: () => void;
+    onConfirm: (reason: string) => Promise<void>;
+}) {
+    const [reason, setReason] = useState('');
+    const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleSubmit = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!reason.trim()) {
+            setError('Please provide a reason for closing/deleting this account.');
+            return;
+        }
+        setSubmitting(true);
+        setError('');
+        try {
+            await onConfirm(reason.trim());
+        } catch (err: unknown) {
+            setError(messageFor(err, 'Failed to close/delete account.'));
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <Modal title={`Close / Delete Account · ${record.id}`} eyebrow="ACCOUNT ACTION" onClose={onClose}>
+            <form onSubmit={handleSubmit}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ padding: '12px 14px', background: 'var(--bg-muted, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-color, #e2e8f0)', fontSize: '0.875rem' }}>
+                        <div><strong>Customer:</strong> {record.customerName} ({record.customerId})</div>
+                        <div><strong>Account:</strong> {record.id} · {record.productName || record.accountType}</div>
+                        <div><strong>Current Balance:</strong> <span style={{ fontWeight: 600, color: record.balance > 0 ? 'var(--color-warning, #d97706)' : 'inherit' }}>{formatCurrency(record.balance)}</span></div>
+                    </div>
+
+                    {record.balance > 0 && (
+                        <div style={{ padding: '10px 12px', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '6px', color: '#92400e', fontSize: '0.825rem', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                            <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                            <div>
+                                <strong>Active balance ({formatCurrency(record.balance)}):</strong> This account currently has an active balance. Deleting/closing this account will automatically zero-out the balance through a closure payout entry to ensure database and ledger consistency.
+                            </div>
+                        </div>
+                    )}
+
+                    <label className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
+                            Reason for closure / deletion <Req />
+                        </span>
+                        <textarea
+                            className="text-input"
+                            rows={3}
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            placeholder="e.g. Customer deleted, customer requested closure, wrong entry"
+                            required
+                        />
+                    </label>
+
+                    {error && (
+                        <div style={{ color: 'var(--color-danger, #dc2626)', fontSize: '0.85rem' }}>{error}</div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                        <button type="button" className="secondary-button" onClick={onClose} disabled={submitting}>
+                            Cancel
+                        </button>
+                        <button type="submit" className="danger-button" disabled={submitting} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#dc2626', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer' }}>
+                            {submitting ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />} Confirm Delete / Close
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </Modal>
+    );
+}
+
+export function DepositTxReverseModal({
+    record,
+    transaction,
+    onClose,
+    onConfirm,
+}: {
+    record: DepositRecord;
+    transaction: DepositTransaction;
+    onClose: () => void;
+    onConfirm: (reason: string) => Promise<void>;
+}) {
+    const [reason, setReason] = useState('');
+    const [customerConfirmed, setCustomerConfirmed] = useState(true);
+    const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleSubmit = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!reason.trim()) {
+            setError('Please provide a reason for reversing this transaction.');
+            return;
+        }
+        setSubmitting(true);
+        setError('');
+        try {
+            await onConfirm(reason.trim());
+        } catch (err: unknown) {
+            setError(messageFor(err, 'Failed to reverse transaction.'));
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <Modal title={`Reverse Transaction · ${transaction.id.slice(0, 8)}...`} eyebrow="FINANCIAL ADJUSTMENT" onClose={onClose}>
+            <form onSubmit={handleSubmit}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ padding: '12px 14px', background: 'var(--bg-muted, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-color, #e2e8f0)', fontSize: '0.875rem' }}>
+                        <div><strong>Account:</strong> {record.id} ({record.customerName})</div>
+                        <div><strong>Transaction:</strong> {transaction.type}</div>
+                        <div><strong>Amount:</strong> <span style={{ fontWeight: 600 }}>{formatCurrency(transaction.amount)}</span></div>
+                        <div><strong>Date:</strong> {transaction.date} · <strong>Mode:</strong> {transaction.paymentMethod || 'Cash'}</div>
+                        {transaction.narration ? <div><strong>Narration:</strong> {transaction.narration}</div> : null}
+                    </div>
+
+                    <div style={{ padding: '10px 12px', background: '#eff6ff', border: '1px solid #dbeafe', borderRadius: '6px', color: '#1e40af', fontSize: '0.825rem', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                        <RotateCcw size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div>
+                            <strong>Financial Audit Compliance:</strong> Ledger rows are immutable and cannot be deleted directly. Reversing this transaction will post a compensating reversing entry and recalculate the current account balance according to banking standards.
+                        </div>
+                    </div>
+
+                    <label className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
+                            Reason for reversal <Req />
+                        </span>
+                        <textarea
+                            className="text-input"
+                            rows={3}
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            placeholder="e.g. Wrong amount entered / duplicate entry / customer cancellation"
+                            required
+                        />
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
+                            checked={customerConfirmed}
+                            onChange={(e) => setCustomerConfirmed(e.target.checked)}
+                        />
+                        <span>Customer informed and confirmed adjustment</span>
+                    </label>
+
+                    {error && (
+                        <div style={{ color: 'var(--color-danger, #dc2626)', fontSize: '0.85rem' }}>{error}</div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                        <button type="button" className="secondary-button" onClick={onClose} disabled={submitting}>
+                            Cancel
+                        </button>
+                        <button type="submit" className="primary-button" disabled={submitting} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            {submitting ? <Loader2 size={15} className="spin" /> : <RotateCcw size={15} />} Confirm Reversal
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </Modal>
+    );
+}
+
 export function DepositStatementModal({
     record,
     onClose,
@@ -290,6 +462,8 @@ export function DepositDetail({
     record,
     onClose,
     onEdit,
+    onDelete,
+    onReverseTx,
     onTransaction,
     onStatement,
     onApprove,
@@ -300,6 +474,8 @@ export function DepositDetail({
     record: DepositRecord;
     onClose: () => void;
     onEdit: () => void;
+    onDelete: () => void;
+    onReverseTx: (transaction: DepositTransaction) => void;
     onTransaction: () => void;
     onStatement: () => void;
     onApprove: () => void;
@@ -383,24 +559,39 @@ export function DepositDetail({
                             <b>{formatCurrency(transaction.amount)}</b>
                             {transaction.balanceAfter !== undefined ? <small>Balance {formatCurrency(transaction.balanceAfter)}</small> : null}
                         </div>
-                        <button
-                            type="button"
-                            className="secondary-button"
-                            style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onViewReceipt(buildTxReceipt(transaction));
-                            }}
-                            title="View / print official receipt"
-                        >
-                            <FileText size={13} /> Receipt
-                        </button>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                                type="button"
+                                className="secondary-button"
+                                style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onViewReceipt(buildTxReceipt(transaction));
+                                }}
+                                title="View / print official receipt"
+                            >
+                                <FileText size={13} /> Receipt
+                            </button>
+                            <button
+                                type="button"
+                                className="secondary-button"
+                                style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#b45309' }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onReverseTx(transaction);
+                                }}
+                                title="Reverse / correct mistaken transaction entry"
+                            >
+                                <RotateCcw size={13} /> Reverse
+                            </button>
+                        </div>
                     </div>
                 </div>)}</div> : <div className="customer-empty">No deposit transactions recorded for this account.</div>}
             </section>
             <div className="customer-detail-actions">
                 <button className="secondary-button" onClick={onStatement}><FileText size={15} /> View / export statement</button>
                 <button className="secondary-button" onClick={onEdit}>Edit account</button>
+                <button className="secondary-button" style={{ color: '#dc2626' }} onClick={onDelete}><Trash2 size={15} /> Close / Delete account</button>
                 {record.status === 'Pending' && (canApprove
                     ? <button className="primary-button" onClick={onApprove} disabled={approving}>{approving ? <Loader2 size={15} className="spin" /> : <CheckCircle2 size={15} />} Approve account</button>
                     : <button className="primary-button" disabled title="Only the President, Managing Director or Super Admin can approve an account opening"><LockKeyhole size={15} /> Awaiting approval</button>)}
@@ -421,6 +612,8 @@ export function DepositsPage() {
     const [statusFilter, setStatusFilter] = useState<'All' | Status>('All');
     const [modal, setModal] = useState<'account' | 'transaction' | 'edit' | 'statement' | 'detail' | null>(null);
     const [selected, setSelected] = useState<DepositRecord | undefined>();
+    const [deleteTarget, setDeleteTarget] = useState<DepositRecord | null>(null);
+    const [reverseTxTarget, setReverseTxTarget] = useState<DepositTransaction | null>(null);
     const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
     const [approvingId, setApprovingId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -555,6 +748,32 @@ export function DepositsPage() {
             setApprovingId(null);
         }
     };
+    const confirmDeleteAccount = async (reason: string) => {
+        if (!deleteTarget) return;
+        try {
+            await depositsRepository.delete(deleteTarget.id, reason);
+            setDepositRows((current) => current.filter((row) => row.id !== deleteTarget.id));
+            if (selected?.id === deleteTarget.id) {
+                close();
+            }
+            setDeleteTarget(null);
+            notify(`Deposit account ${deleteTarget.id} closed and removed.`);
+        } catch (reasonErr) {
+            notify(messageFor(reasonErr, 'Unable to close/delete deposit account.'));
+        }
+    };
+    const confirmReverseTx = async (reason: string) => {
+        if (!selected || !reverseTxTarget) return;
+        try {
+            const updated = await depositsRepository.reverseTransaction(selected.id, reverseTxTarget.id, reason);
+            setDepositRows((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+            setSelected(updated);
+            setReverseTxTarget(null);
+            notify(`Transaction entry reversed. Reversing ledger entry recorded.`);
+        } catch (reasonErr) {
+            notify(messageFor(reasonErr, 'Unable to reverse deposit transaction.'));
+        }
+    };
     return <div className="admin-page">
         <div className="page-heading">
             <div>
@@ -618,6 +837,15 @@ export function DepositsPage() {
                                 >
                                     <Pencil size={15} />
                                 </button>
+                                <button
+                                    className="row-action"
+                                    title="Close / Delete deposit account"
+                                    onClick={(event) => { event.stopPropagation(); setDeleteTarget(row); }}
+                                    aria-label={`Delete ${row.id}`}
+                                    style={{ color: '#dc2626' }}
+                                >
+                                    <Trash2 size={15} />
+                                </button>
                                 <button className="row-action" onClick={(event) => { event.stopPropagation(); setSelected(row); setModal('detail'); }} aria-label={`Open ${row.id}`} title="View details">
                                     <ChevronRight size={16} />
                                 </button>
@@ -634,7 +862,9 @@ export function DepositsPage() {
         {modal === 'transaction' && selected && <DepositModal mode="transaction" record={selected} onClose={close} onSave={(input) => saveTransaction(input as DepositTransactionInput)} />}
         {modal === 'edit' && selected && <DepositEditModal record={selected} onClose={close} onSave={saveEdit} />}
         {modal === 'statement' && selected && <DepositStatementModal record={selected} onClose={close} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}
-        {modal === 'detail' && selected && <DepositDetail record={selected} onClose={close} onEdit={() => setModal('edit')} onTransaction={() => setModal('transaction')} onStatement={() => setModal('statement')} onApprove={() => void approveAccount(selected)} approving={approvingId === selected.id} canApprove={canApproveDeposit} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}
+        {modal === 'detail' && selected && <DepositDetail record={selected} onClose={close} onEdit={() => setModal('edit')} onDelete={() => setDeleteTarget(selected)} onReverseTx={(tx) => setReverseTxTarget(tx)} onTransaction={() => setModal('transaction')} onStatement={() => setModal('statement')} onApprove={() => void approveAccount(selected)} approving={approvingId === selected.id} canApprove={canApproveDeposit} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}
+        {deleteTarget && <DepositDeleteModal record={deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={confirmDeleteAccount} />}
+        {reverseTxTarget && selected && <DepositTxReverseModal record={selected} transaction={reverseTxTarget} onClose={() => setReverseTxTarget(null)} onConfirm={confirmReverseTx} />}
         {activeReceipt && <TransactionReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />}
         {toast && <div className="admin-toast">
             <CheckCircle2 size={16} />{toast}</div>}
