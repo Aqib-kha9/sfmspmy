@@ -4,6 +4,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { Toast, useToast } from '../../../components/feedback/Toast';
 import { CustomerDetailModal } from '../components/CustomerDetailModal';
 import { CustomerFormModal } from '../components/CustomerFormModal';
+import { CustomerDeleteModal } from '../components/CustomerDeleteModal';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
 import { CustomerTable } from '../components/CustomerTable';
 import { useCustomers } from '../hooks/useCustomers';
@@ -56,7 +57,7 @@ export function CustomersPage() {
     const [showFilters, setShowFilters] = useState(false);
     const [page, setPage] = useState(1);
     const [exporting, setExporting] = useState(false);
-    const [modal, setModal] = useState<'add' | 'edit' | 'detail' | 'statement' | null>(null);
+    const [modal, setModal] = useState<'add' | 'edit' | 'detail' | 'statement' | 'delete' | null>(null);
     const [selected, setSelected] = useState<Customer>();
 
     // Every control maps to a validated backend query parameter, so filtering
@@ -73,7 +74,7 @@ export function CustomersPage() {
         offset: (page - 1) * pageSize,
     }), [debouncedSearch, status, accountType, customerType, customerId, appliedRange, page]);
 
-    const { customers, total, options, stats, loading, error, exportCsv, statement, create, update, approve } = useCustomers(query);
+    const { customers, total, options, stats, loading, error, exportCsv, statement, create, update, approve, remove } = useCustomers(query);
 
     const pages = Math.max(1, Math.ceil(total / pageSize));
     const showingFrom = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -115,6 +116,17 @@ export function CustomersPage() {
             }
         } catch (reason) {
             notify(reason instanceof Error ? reason.message : 'Unable to approve customer.');
+        }
+    };
+
+    const handleDelete = async (reason: string) => {
+        if (!selected) return;
+        try {
+            await remove(selected.systemId || selected.id, reason);
+            notify(`Customer ${selected.name} deleted / deactivated.`);
+            close();
+        } catch (reason) {
+            throw reason instanceof Error ? reason : new Error('Unable to delete customer.');
         }
     };
 
@@ -213,12 +225,19 @@ export function CustomersPage() {
             {loading && customers.length === 0 ? <div className="empty-state"><strong>Loading customer records</strong><span>Fetching customers from the server.</span></div>
                 : error ? <div className="empty-state"><strong>{error}</strong><span>Refresh the page to retry the server request.</span></div>
                     : customers.length === 0 ? <div className="empty-state"><strong>No customers match these filters</strong><span>{filtersActive ? 'Adjust or clear the filters to widen the search.' : 'Register a customer to see it listed here.'}</span></div>
-                        : <CustomerTable rows={customers} onDetail={(customer) => { setSelected(customer); setModal('detail'); }} onEdit={canWrite ? (customer) => { setSelected(customer); setModal('edit'); } : undefined} onApprove={canApprove ? handleApprove : undefined} />}
+                        : <CustomerTable
+                            rows={customers}
+                            onDetail={(customer) => { setSelected(customer); setModal('detail'); }}
+                            onEdit={canWrite ? (customer) => { setSelected(customer); setModal('edit'); } : undefined}
+                            onDelete={canWrite ? (customer) => { setSelected(customer); setModal('delete'); } : undefined}
+                            onApprove={canApprove ? handleApprove : undefined}
+                        />}
             <div className="pagination"><span>Showing {showingFrom}–{showingTo} of {total}</span><div><button type="button" className="secondary-button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button><button type="button" className="secondary-button" disabled={page >= pages} onClick={() => setPage((current) => Math.min(pages, current + 1))}>Next</button></div></div>
         </section>
         {modal === 'add' && <CustomerFormModal onClose={close} onSave={save} />}
         {modal === 'edit' && canWrite && selected && <CustomerFormModal customer={selected} onClose={close} onSave={save} />}
-        {modal === 'detail' && selected && <CustomerDetailModal customer={selected} onClose={close} onEdit={() => setModal('edit')} onViewStatement={() => setModal('statement')} onApprove={canApprove ? () => void handleApprove(selected) : undefined} />}
+        {modal === 'delete' && canWrite && selected && <CustomerDeleteModal customer={selected} onClose={close} onConfirm={handleDelete} />}
+        {modal === 'detail' && selected && <CustomerDetailModal customer={selected} onClose={close} onEdit={() => setModal('edit')} onDelete={canWrite ? () => setModal('delete') : undefined} onViewStatement={() => setModal('statement')} onApprove={canApprove ? () => void handleApprove(selected) : undefined} />}
         {modal === 'statement' && selected && <CustomerStatementModal customerId={selected.systemId} customerName={selected.name} onClose={() => setModal('detail')} loadStatement={statement} />}
         <Toast message={message} />
     </div>;

@@ -84,7 +84,12 @@ export function useCustomers(query: CustomerQuery = {}) {
         await Promise.all([refresh(), refreshMeta()]);
         return customer;
     };
+    const remove = async (id: string, reason?: string) => {
+        const customer = await customerRepository.delete(id, reason);
+        await Promise.all([refresh(), refreshMeta()]);
+        return customer;
+    };
 
-    return { customers, total, options, stats, loading, error, refresh, refreshMeta, exportCsv, statement, create, update, approve };
+    return { customers, total, options, stats, loading, error, refresh, refreshMeta, exportCsv, statement, create, update, approve, remove };
 }
 

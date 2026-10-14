@@ -14,12 +14,14 @@ export function CustomerDetailModal({
     customer,
     onClose,
     onEdit,
+    onDelete,
     onViewStatement,
     onApprove,
 }: {
     customer: Customer;
     onClose: () => void;
     onEdit?: () => void;
+    onDelete?: () => void;
     onViewStatement: () => void;
     onApprove?: () => void;
 }) {
@@ -57,6 +59,15 @@ export function CustomerDetailModal({
                 </button>
             )}
             {onEdit && <button className="primary-button" onClick={onEdit}>Edit customer</button>}
+            {onDelete && (
+                <button
+                    className="primary-button"
+                    style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                    onClick={onDelete}
+                >
+                    Delete customer
+                </button>
+            )}
         </div>
     </Modal>;
 }

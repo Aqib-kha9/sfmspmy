@@ -18,8 +18,8 @@
 import { Pagination } from '../../../components/ui/Pagination';
 import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
 import { FormEvent, useEffect, useState } from 'react';
-import { ArrowDownToLine, CalendarDays, CheckCircle2, ChevronRight, Download, Loader2, Search } from 'lucide-react';
-import { collectionsRepository, type CollectionRecord } from '../services/operations/collectionsApiRepository';
+import { ArrowDownToLine, CalendarDays, CheckCircle2, ChevronRight, Download, Loader2, Pencil, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { collectionsRepository, type CollectionRecord, type UpdateCollectionInput } from '../services/operations/collectionsApiRepository';
 import { formatAmount, formatTimestamp, messageFor, querySuffix } from '../services/operations/helpers';
 import { StatusPill, SummaryStrip } from '../components/adminShared';
 import { useAuth } from '../../auth/AuthContext';
@@ -116,6 +116,7 @@ const MODES: Array<{ value: CollectionMode; label: string }> = [
 /** Maps a product type onto the account id field the submit contract requires. */
 const ACCOUNT_FIELD: Record<CollectionProductType, 'savingsAccountId' | 'rdAccountId' | 'loanId' | null> = {
     savingsDeposit: 'savingsAccountId',
+    dailyDeposit: 'savingsAccountId',
     recurringDeposit: 'rdAccountId',
     loan: 'loanId',
     penalty: null,
@@ -249,6 +250,134 @@ export function AllocateActionModal({ record, onClose, onSave }: { record: Colle
 }
 
 // ---------------------------------------------------------------------------
+// Edit collection modal (M.D. | manager | president)
+// ---------------------------------------------------------------------------
+
+export function EditCollectionActionModal({
+    record,
+    onClose,
+    onSave,
+}: {
+    record: CollectionRecord;
+    onClose: () => void;
+    onSave: (input: UpdateCollectionInput) => Promise<void>;
+}) {
+    const [amount, setAmount] = useState(String(record.amount));
+    const [mode, setMode] = useState<CollectionMode>(
+        (record.paymentMethod && ['cash', 'UPI', 'NEFT', 'RTGS', 'cheque'].includes(record.paymentMethod)
+            ? (record.paymentMethod as CollectionMode)
+            : 'cash')
+    );
+    const [instrumentRef, setInstrumentRef] = useState(record.externalReference || '');
+    const [remarks, setRemarks] = useState(record.remarks || '');
+    const [reason, setReason] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    const submit = async (event: FormEvent) => {
+        event.preventDefault();
+        setError('');
+        const trimmedReason = reason.trim();
+        if (trimmedReason.length < 3) {
+            setError('An audit reason of at least 3 characters is required.');
+            return;
+        }
+        const parsedAmount = Number(amount);
+        if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+            setError('Please enter a valid positive collection amount.');
+            return;
+        }
+
+        setSaving(true);
+        try {
+            await onSave({
+                amount: parsedAmount,
+                mode,
+                instrumentRef: instrumentRef.trim() || null,
+                remarks: remarks.trim() || null,
+                reason: trimmedReason,
+            });
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unable to update collection entry.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="admin-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+            <section className="admin-modal" role="dialog" aria-modal="true" aria-label={`Edit collection ${record.id}`}>
+                <div className="admin-modal-header">
+                    <div>
+                        <div className="eyebrow">EDIT COLLECTION ENTRY</div>
+                        <h2>Edit · {record.id}</h2>
+                        <p>{record.customerName} · {record.collectionType} · Current amount: {formatAmount(record.amount)}</p>
+                    </div>
+                    <button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button>
+                </div>
+                <form className="form-grid customer-form" onSubmit={(e) => void submit(e)}>
+                    <label>
+                        <span>Collection Amount (₹) <Req /></span>
+                        <input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            required
+                        />
+                    </label>
+                    <label>
+                        <span>Payment Mode <Req /></span>
+                        <select value={mode} onChange={(e) => setMode(e.target.value as CollectionMode)}>
+                            {MODES.map((m) => (
+                                <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="full-field">
+                        <span>Instrument / External Ref (UTR, Cheque No.) <Opt /></span>
+                        <input
+                            type="text"
+                            value={instrumentRef}
+                            onChange={(e) => setInstrumentRef(e.target.value)}
+                            placeholder="Optional transaction reference, UTR or cheque number"
+                        />
+                    </label>
+                    <label className="full-field">
+                        <span>Remarks <Opt /></span>
+                        <input
+                            type="text"
+                            value={remarks}
+                            onChange={(e) => setRemarks(e.target.value)}
+                            placeholder="Collection notes or customer remarks"
+                        />
+                    </label>
+                    <label className="full-field">
+                        <span>Audit Reason for Edit <Req /></span>
+                        <textarea
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            placeholder="Why this entry is being modified (e.g., corrected typographical error in amount)"
+                            rows={2}
+                            required
+                        />
+                    </label>
+                    {error && <p className="form-error full-field">{error}</p>}
+                    <div className="admin-form-actions full-field">
+                        <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button>
+                        <button type="submit" className="primary-button" disabled={saving}>
+                            {saving ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />}
+                            {saving ? 'Saving…' : 'Save changes'}
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Delete-duplicate modal (M.D. | manager)
 // ---------------------------------------------------------------------------
 
@@ -302,7 +431,7 @@ export function ReverseActionModal({ record, onClose, onSave }: { record: Collec
 // Detail drawer with the office actions
 // ---------------------------------------------------------------------------
 
-export function CollectionDetail({ record, onClose, onToast, onReview, onAllocate, onDeleteDuplicate, onReverse }: { record: CollectionRecord; onClose: () => void; onToast: (message: string) => void; onReview: () => void; onAllocate: () => void; onDeleteDuplicate: () => void; onReverse: () => void }) {
+export function CollectionDetail({ record, onClose, onToast, onReview, onAllocate, onDeleteDuplicate, onReverse, onEdit }: { record: CollectionRecord; onClose: () => void; onToast: (message: string) => void; onReview: () => void; onAllocate: () => void; onDeleteDuplicate: () => void; onReverse: () => void; onEdit?: () => void }) {
     const { hasRole } = useAuth();
     const canReviewOrAllocate = hasRole('managing_director', 'president', 'vice_president', 'manager');
     const canReverse = hasRole('managing_director', 'president');
@@ -342,7 +471,7 @@ export function CollectionDetail({ record, onClose, onToast, onReview, onAllocat
         onToast(`Exported ${record.events.length} audit events.`);
     };
 
-    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`Collection ${record.id}`}><div className="admin-modal-header"><div><div className="eyebrow">COLLECTION ENTRY / {record.id}</div><h2>{record.customerName}</h2><p>{record.customerId} · {record.customerPhone} · {record.collectionType} · {formatAmount(record.amount)}</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><div className="customer-modal-content"><div className="customer-section"><div className="customer-section-heading"><h3>Receipt & entry details</h3><StatusPill status={record.status} /></div><div className="customer-metadata-grid">{metadata.map(([label, value]) => <div className="customer-metadata-item" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></div><div className="customer-section"><div className="customer-section-heading"><h3>Audit trail</h3><span>{record.events.length} events</span></div><div className="customer-timeline">{record.events.map((event) => <div className="customer-timeline-item" key={event.id}><div><strong>{event.type}</strong><span>{event.performedBy} · {event.date}</span></div><p>{event.note}</p></div>)}</div></div></div><div className="customer-detail-actions">{canReviewOrAllocate && <button className="secondary-button" onClick={onReview}>Review collection</button>}{canReviewOrAllocate && <button className="secondary-button" onClick={onAllocate}>Allocate short payment</button>}{canDeleteDuplicate && record.status !== 'Completed' && <button className="secondary-button" onClick={onDeleteDuplicate}>Remove duplicate</button>}{canReverse && record.status === 'Completed' && <button className="secondary-button" onClick={onReverse}>Reverse collection</button>}<button className="secondary-button" onClick={exportHistory}>Export history</button><button className="secondary-button" onClick={onClose}>Close</button></div></section></div>;
+    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`Collection ${record.id}`}><div className="admin-modal-header"><div><div className="eyebrow">COLLECTION ENTRY / {record.id}</div><h2>{record.customerName}</h2><p>{record.customerId} · {record.customerPhone} · {record.collectionType} · {formatAmount(record.amount)}</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><div className="customer-modal-content"><div className="customer-section"><div className="customer-section-heading"><h3>Receipt & entry details</h3><StatusPill status={record.status} /></div><div className="customer-metadata-grid">{metadata.map(([label, value]) => <div className="customer-metadata-item" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></div><div className="customer-section"><div className="customer-section-heading"><h3>Audit trail</h3><span>{record.events.length} events</span></div><div className="customer-timeline">{record.events.map((event) => <div className="customer-timeline-item" key={event.id}><div><strong>{event.type}</strong><span>{event.performedBy} · {event.date}</span></div><p>{event.note}</p></div>)}</div></div></div><div className="customer-detail-actions">{canReviewOrAllocate && record.status !== 'Completed' && onEdit && <button className="secondary-button" onClick={onEdit}>Edit collection</button>}{canReviewOrAllocate && <button className="secondary-button" onClick={onReview}>Review collection</button>}{canReviewOrAllocate && <button className="secondary-button" onClick={onAllocate}>Allocate short payment</button>}{canDeleteDuplicate && record.status !== 'Completed' && <button className="secondary-button" onClick={onDeleteDuplicate}>Remove duplicate</button>}{canReverse && record.status === 'Completed' && <button className="secondary-button" onClick={onReverse}>Reverse collection</button>}<button className="secondary-button" onClick={exportHistory}>Export history</button><button className="secondary-button" onClick={onClose}>Close</button></div></section></div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +491,7 @@ export function ScopedCollectionsPage() {
     const [dateTo, setDateTo] = useState('');
     const [page, setPage] = useState(1);
     const [refreshKey, setRefreshKey] = useState(0);
-    const [modal, setModal] = useState<'entry' | 'review' | 'allocate' | 'delete-duplicate' | 'reverse' | 'detail' | null>(null);
+    const [modal, setModal] = useState<'entry' | 'review' | 'allocate' | 'delete-duplicate' | 'reverse' | 'detail' | 'edit' | null>(null);
     const [selected, setSelected] = useState<CollectionRecord | undefined>();
     const [toast, setToast] = useState('');
     const pageSize = 4;
@@ -454,6 +583,18 @@ export function ScopedCollectionsPage() {
         }
     };
 
+    const submitUpdate = async (input: UpdateCollectionInput) => {
+        if (!selected) return;
+        try {
+            await collectionsRepository.update(selected.collectionId, input);
+            close();
+            notify(`Collection ${selected.id} updated successfully.`);
+            refresh();
+        } catch (reason) {
+            notify(messageFor(reason, 'Unable to update the collection entry.'));
+        }
+    };
+
     const exportRows = () => {
         if (!collectionRows.length) { notify('No collections to export for the current filters.'); return; }
         const header = 'Receipt,Customer,Type,Amount,Agent,Collected,Status,Mode';
@@ -483,18 +624,66 @@ export function ScopedCollectionsPage() {
                 <table className="data-table">
                     <thead><tr><th>Customer</th><th>Receipt</th><th>Type</th><th>Amount</th><th>Agent</th><th>Status</th><th>Sync</th><th aria-label="Actions" /></tr></thead>
                     <tbody>
-                        {loading ? <tr><td colSpan={8} className="empty-state"><Loader2 className="spin" size={16} /> Loading collections…</td></tr> : visibleRows.length ? visibleRows.map((record) => <tr key={record.collectionId}><td><strong>{record.customerName}</strong><span>{record.customerId} · {record.customerPhone}</span></td><td><strong>{record.id}</strong><span>{formatTimestamp(record.collectedOn)}</span></td><td>{record.collectionType}</td><td className="collection-amount">{formatAmount(record.amount)}</td><td>{record.agent}</td><td><StatusPill status={record.status} /></td><td><span className="table-muted">{record.syncStatus}</span></td><td><div className="customer-table-actions"><button className="icon-button" onClick={() => openDetail(record)} aria-label={`Open collection ${record.id}`}><ChevronRight size={16} /></button></div></td></tr>) : <tr><td colSpan={8} className="empty-state"><strong>No collections found</strong><span>Adjust the search or filters to see recorded doorstep collections.</span></td></tr>}
+                        {loading ? <tr><td colSpan={8} className="empty-state"><Loader2 className="spin" size={16} /> Loading collections…</td></tr> : visibleRows.length ? visibleRows.map((record) => <tr key={record.collectionId}>
+                            <td><strong>{record.customerName}</strong><span>{record.customerId} · {record.customerPhone}</span></td>
+                            <td><strong>{record.id}</strong><span>{formatTimestamp(record.collectedOn)}</span></td>
+                            <td>{record.collectionType}</td>
+                            <td className="collection-amount">{formatAmount(record.amount)}</td>
+                            <td>{record.agent}</td>
+                            <td><StatusPill status={record.status} /></td>
+                            <td><span className="table-muted">{record.syncStatus}</span></td>
+                            <td>
+                                <div className="customer-table-actions">
+                                    {canRecordEntry && record.status !== 'Completed' && (
+                                        <>
+                                            <button
+                                                className="icon-button"
+                                                title="Edit collection entry"
+                                                aria-label={`Edit ${record.id}`}
+                                                onClick={(e) => { e.stopPropagation(); setSelected(record); setModal('edit'); }}
+                                            >
+                                                <Pencil size={15} />
+                                            </button>
+                                            <button
+                                                className="icon-button"
+                                                title="Remove duplicate / mistaken entry"
+                                                aria-label={`Delete duplicate ${record.id}`}
+                                                onClick={(e) => { e.stopPropagation(); setSelected(record); setModal('delete-duplicate'); }}
+                                                style={{ color: '#dc2626' }}
+                                            >
+                                                <Trash2 size={15} />
+                                            </button>
+                                        </>
+                                    )}
+                                    {canRecordEntry && record.status === 'Completed' && (
+                                        <button
+                                            className="icon-button"
+                                            title="Reverse collection (dispute resolution)"
+                                            aria-label={`Reverse ${record.id}`}
+                                            onClick={(e) => { e.stopPropagation(); setSelected(record); setModal('reverse'); }}
+                                            style={{ color: '#d97706' }}
+                                        >
+                                            <RotateCcw size={15} />
+                                        </button>
+                                    )}
+                                    <button className="icon-button" onClick={() => openDetail(record)} aria-label={`Open collection ${record.id}`} title="View details">
+                                        <ChevronRight size={16} />
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>) : <tr><td colSpan={8} className="empty-state"><strong>No collections found</strong><span>Adjust the search or filters to see recorded doorstep collections.</span></td></tr>}
                     </tbody>
                 </table>
             </div>
             <Pagination page={page} pageSize={pageSize} totalItems={collectionRows.length} itemName="collections" setPage={setPage} />
         </section>
         {modal === 'entry' && canRecordEntry && <EmergencyApprovalModal onClose={close} onSave={submitEmergency} />}
+        {modal === 'edit' && selected && <EditCollectionActionModal record={selected} onClose={close} onSave={submitUpdate} />}
         {modal === 'review' && selected && <ReviewActionModal record={selected} onClose={close} onSave={submitReview} />}
         {modal === 'allocate' && selected && <AllocateActionModal record={selected} onClose={close} onSave={submitAllocation} />}
         {modal === 'delete-duplicate' && selected && <DeleteDuplicateActionModal record={selected} onClose={close} onSave={submitDeleteDuplicate} />}
         {modal === 'reverse' && selected && <ReverseActionModal record={selected} onClose={close} onSave={submitReverse} />}
-        {modal === 'detail' && selected && <CollectionDetail record={selected} onClose={close} onToast={notify} onReview={() => setModal('review')} onAllocate={() => setModal('allocate')} onDeleteDuplicate={() => setModal('delete-duplicate')} onReverse={() => setModal('reverse')} />}
+        {modal === 'detail' && selected && <CollectionDetail record={selected} onClose={close} onToast={notify} onReview={() => setModal('review')} onAllocate={() => setModal('allocate')} onDeleteDuplicate={() => setModal('delete-duplicate')} onReverse={() => setModal('reverse')} onEdit={() => setModal('edit')} />}
         {toast && <div className="admin-toast"><CheckCircle2 size={16} />{toast}</div>}
     </div>;
 }

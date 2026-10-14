@@ -93,6 +93,14 @@ export type CollectionsQuery = {
     offset?: number;
 };
 
+export type UpdateCollectionInput = {
+    amount?: number | string;
+    mode?: CollectionMode;
+    instrumentRef?: string | null;
+    remarks?: string | null;
+    reason: string;
+};
+
 export interface CollectionsRepository {
     list(query?: CollectionsQuery): Promise<CollectionRecord[]>;
     totals(query?: CollectionsQuery): Promise<CollectionTotalsView>;
@@ -100,6 +108,7 @@ export interface CollectionsRepository {
     review(id: string, input: ReviewCollectionInput): Promise<CollectionRecord>;
     reverse(id: string, input: ReverseCollectionInput): Promise<CollectionRecord>;
     deleteDuplicate(id: string, input: DeleteDuplicateInput): Promise<CollectionRecord>;
+    update(id: string, input: UpdateCollectionInput): Promise<CollectionRecord>;
     allocate(id: string, input: AllocateCollectionInput): Promise<CollectionRecord>;
     emergencyApprove(input: EmergencyApprovalInput): Promise<CollectionRecord>;
 }
@@ -117,6 +126,7 @@ const STATUS_FROM_API: Record<CollectionSubmissionStatus, Status> = {
 
 const TYPE_FROM_API: Record<CollectionProductType, CollectionRecord['collectionType']> = {
     savingsDeposit: 'Daily collection',
+    dailyDeposit: 'Daily collection',
     recurringDeposit: 'RD installment',
     loan: 'Loan repayment',
     penalty: 'Penalty',
@@ -295,6 +305,20 @@ export class ApiCollectionsRepository implements CollectionsRepository {
         const view = await apiClient.request<CollectionView>(`/collections/${id}/delete-duplicate`, {
             method: 'POST',
             body: input,
+        });
+        return toCollectionRecord(view);
+    }
+
+    async update(id: string, input: UpdateCollectionInput): Promise<CollectionRecord> {
+        const payload: Record<string, unknown> = { reason: input.reason };
+        if (input.amount !== undefined) payload.amount = String(input.amount);
+        if (input.mode !== undefined) payload.mode = input.mode;
+        if (input.instrumentRef !== undefined) payload.instrumentRef = input.instrumentRef;
+        if (input.remarks !== undefined) payload.remarks = input.remarks;
+
+        const view = await apiClient.request<CollectionView>(`/collections/${id}`, {
+            method: 'PATCH',
+            body: payload,
         });
         return toCollectionRecord(view);
     }

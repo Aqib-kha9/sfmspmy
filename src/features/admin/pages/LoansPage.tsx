@@ -2,7 +2,7 @@
 
 import { Pagination } from '../../../components/ui/Pagination';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight, CalendarDays, CheckCircle2, Download, FileText, Filter, Loader2, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { ArrowUpRight, CalendarDays, CheckCircle2, Download, FileText, Filter, Loader2, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { loansRepository } from '../services/operations/loansApiRepository';
 import type { LoanInput as LoanRepoInput, LoanRepaymentInput as LoanRepoRepaymentInput, LoanProductView } from '../services/operations/loansApiRepository';
 import type { ApproveLoanInput, LoanPaymentMethod, RescheduleLoanInput, SettleLoanInput, WriteOffLoanInput } from '../../../lib/api/types';
@@ -142,6 +142,7 @@ export function LoanModal({ mode, record, onClose, onSave }: { mode: 'account' |
     const [interestMethod, setInterestMethod] = useState<LoanInterestMethod>(record?.interestMethod ?? 'Reducing balance');
     const [interestRate, setInterestRate] = useState(String(record?.interestRate ?? 14.5));
     const [installmentAmount, setInstallmentAmount] = useState(String(record?.installmentAmount ?? ''));
+    const [isCustomInstallment, setIsCustomInstallment] = useState(false);
     const [gracePeriodDays, setGracePeriodDays] = useState(String(record?.gracePeriodDays ?? 0));
     const [moratoriumMonths, setMoratoriumMonths] = useState(String(record?.moratoriumMonths ?? 0));
     const [lateFee, setLateFee] = useState(String(record?.lateFee ?? 0));
@@ -309,9 +310,10 @@ export function LoanModal({ mode, record, onClose, onSave }: { mode: 'account' |
     useEffect(() => {
         if (mode !== 'account' || record) return;
         if (projectedInstallment <= 0) return;
+        if (isCustomInstallment) return;
         const derived = String(projectedInstallment);
         setInstallmentAmount((current) => (current === derived ? current : derived));
-    }, [mode, record, projectedInstallment]);
+    }, [mode, record, projectedInstallment, isCustomInstallment]);
     const productHint = selectedProduct
         ? `${selectedProduct.name} · ${formatCurrency(Number(selectedProduct.minAmount))} - ${formatCurrency(Number(selectedProduct.maxAmount))} · ${selectedProduct.minTenureMonths}-${selectedProduct.maxTenureMonths} months · ${selectedProduct.interestRate}% p.a. · ${selectedProduct.interestMethod === 'flat' ? 'Flat' : 'Reducing balance'} · ${selectedProduct.repaymentFrequency}${selectedProduct.collateralRequired ? ' · collateral required' : ''} (max LTV ${selectedProduct.maxLtvPercent}%).`
         : '';
@@ -450,7 +452,7 @@ export function LoanModal({ mode, record, onClose, onSave }: { mode: 'account' |
                     <label><span>Interest method <Req /></span><select value={interestMethod} onChange={(event) => setInterestMethod(event.target.value as LoanInterestMethod)}><option>Flat</option><option>Reducing balance</option><option>Daily reducing</option></select></label>
                     <label><span>Repayment frequency <Req /></span><select value={frequency} onChange={(event) => setFrequency(event.target.value as LoanFrequency)}><option>Daily</option><option>Weekly</option><option>Fortnightly</option><option>Monthly</option><option>Quarterly</option></select></label>
                     <label><span>Tenure (months) <Req /></span><input type="number" min="1" value={tenureMonths} onChange={(event) => setTenureMonths(event.target.value)} />{tenureBelowMin ? <small className="form-error">Product requires at least {selectedProduct?.minTenureMonths} months.</small> : null}{tenureAboveMax ? <small className="form-error">Product allows at most {selectedProduct?.maxTenureMonths} months.</small> : null}</label>
-                    <label><span>Installment amount <Req /></span><input type="number" value={installmentAmount} onChange={(event) => setInstallmentAmount(event.target.value)} />{projectedInstallment > 0 ? <small className="form-note">Projected installment {formatCurrency(projectedInstallment)} using the selected method.</small> : null}</label>
+                    <label><span>Installment amount <Req /></span><input type="number" step="0.01" value={installmentAmount} onChange={(event) => { setIsCustomInstallment(true); setInstallmentAmount(event.target.value); }} />{projectedInstallment > 0 ? <small className="form-note">Projected installment {formatCurrency(projectedInstallment)} using {interestMethod === 'Flat' ? 'flat rate' : 'reducing balance'}.{isCustomInstallment && <button type="button" onClick={() => { setIsCustomInstallment(false); setInstallmentAmount(String(projectedInstallment)); }} style={{ background: 'none', border: 'none', color: 'var(--primary, #1f6feb)', cursor: 'pointer', textDecoration: 'underline', padding: 0, marginLeft: 6, fontSize: 11 }}>Reset to projected</button>}</small> : null}</label>
                     {field('Loan / application date', loanDate, setLoanDate, 'date', true)}
                     <label><span>First due date <Req /></span><input type="date" value={firstDueDate} readOnly aria-readonly="true" />{loanDate ? <small className="form-note">Derived from the application date and repayment frequency.</small> : null}</label>
                     <div className="full-field form-section-heading">
@@ -685,12 +687,231 @@ export function LoanDisburseModal({ record, onClose, onSave }: { record: LoanRec
     </Modal>;
 }
 
+export function LoanCancelModal({ record, onClose, onSave }: { record: LoanRecord; onClose: () => void; onSave: (reason: string) => Promise<void> }) {
+    const [reason, setReason] = useState('');
+    const [error, setError] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    const submit = async (event: FormEvent<HTMLFormElement>) => {
+        if (saving) return;
+        setSaving(true);
+        try {
+            event.preventDefault();
+            if (!reason.trim()) {
+                setError('A cancellation reason is required for audit compliance.');
+                return;
+            }
+            await onSave(reason.trim());
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+            <section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`Cancel loan application ${record.id}`}>
+                <div className="admin-modal-header">
+                    <div>
+                        <div className="eyebrow">LOAN APPLICATION WORKFLOW</div>
+                        <h2>Cancel Application · {record.id}</h2>
+                        <p>Cancelling withdraws this loan application before underwriting or disbursement. The cancellation reason is permanently recorded on the immutable audit log.</p>
+                    </div>
+                    <button className="icon-button" type="button" onClick={onClose} aria-label="Close dialog">×</button>
+                </div>
+                <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
+                    <FormLegend />
+                    <label>
+                        <span>Customer</span>
+                        <input value={`${record.customerName} (${record.customerId})`} readOnly disabled />
+                    </label>
+                    <label>
+                        <span>Loan scheme</span>
+                        <input value={`${record.loanType} · ₹${record.principal.toLocaleString('en-IN')}`} readOnly disabled />
+                    </label>
+                    <label className="full-field">
+                        <span>Cancellation reason <Req /></span>
+                        <textarea
+                            value={reason}
+                            onChange={(event) => setReason(event.target.value)}
+                            placeholder="Explain why this loan application is being cancelled (mandatory for audit compliance)..."
+                            rows={3}
+                            required
+                        />
+                    </label>
+                    {error && <p className="form-error full-field">{error}</p>}
+                    <div className="admin-form-actions full-field">
+                        <button type="button" className="secondary-button" onClick={onClose}>Keep application</button>
+                        <button type="submit" className="primary-button" disabled={saving}>
+                            {saving ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+                            {saving ? 'Cancelling…' : 'Cancel application'}
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    );
+}
+
+export function LoanEditModal({ record, onClose, onSave }: {
+    record: LoanRecord;
+    onClose: () => void;
+    onSave: (input: { purpose?: string; amount?: number; tenureMonths?: number; repaymentFrequency?: LoanFrequency; interestRate?: number; reason: string }) => Promise<void>;
+}) {
+    const [principal, setPrincipal] = useState(String(record.principal));
+    const [tenureMonths, setTenureMonths] = useState(String(record.tenureMonths));
+    const [repaymentFrequency, setRepaymentFrequency] = useState<LoanFrequency>(record.repaymentFrequency ?? 'Monthly');
+    const [interestRate, setInterestRate] = useState(String(record.interestRate));
+    const [purpose, setPurpose] = useState(record.purpose ?? '');
+    const [reason, setReason] = useState('');
+    const [error, setError] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    const submit = async (event: FormEvent<HTMLFormElement>) => {
+        if (saving) return;
+        setSaving(true);
+        try {
+            event.preventDefault();
+            const numericPrincipal = Number(principal);
+            const numericTenure = Number(tenureMonths);
+            const numericRate = Number(interestRate);
+
+            if (!numericPrincipal || numericPrincipal <= 0) {
+                setError('A valid positive loan amount is required.');
+                return;
+            }
+            if (!numericTenure || numericTenure <= 0) {
+                setError('A valid tenure in months is required.');
+                return;
+            }
+            if (numericRate === undefined || numericRate < 0) {
+                setError('A valid interest rate is required.');
+                return;
+            }
+            if (!reason.trim()) {
+                setError('A mandatory modification reason is required for audit compliance.');
+                return;
+            }
+
+            await onSave({
+                amount: numericPrincipal,
+                tenureMonths: numericTenure,
+                repaymentFrequency,
+                interestRate: numericRate,
+                purpose: purpose.trim() || undefined,
+                reason: reason.trim(),
+            });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+            <section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`Edit loan application ${record.id}`}>
+                <div className="admin-modal-header">
+                    <div>
+                        <div className="eyebrow">LOAN APPLICATION WORKFLOW</div>
+                        <h2>Edit Application · {record.id}</h2>
+                        <p>Modify the terms of this undisbursed loan application. Changes are recorded on the backend audit log.</p>
+                    </div>
+                    <button className="icon-button" type="button" onClick={onClose} aria-label="Close dialog">×</button>
+                </div>
+                <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
+                    <FormLegend />
+                    <label>
+                        <span>Customer</span>
+                        <input value={`${record.customerName} (${record.customerId})`} readOnly disabled />
+                    </label>
+                    <label>
+                        <span>Loan scheme</span>
+                        <input value={record.loanType} readOnly disabled />
+                    </label>
+                    <label>
+                        <span>Requested amount (₹) <Req /></span>
+                        <input
+                            type="number"
+                            min="1000"
+                            step="any"
+                            value={principal}
+                            onChange={(e) => setPrincipal(e.target.value)}
+                            required
+                        />
+                    </label>
+                    <label>
+                        <span>Tenure (months) <Req /></span>
+                        <input
+                            type="number"
+                            min="1"
+                            max="360"
+                            value={tenureMonths}
+                            onChange={(e) => setTenureMonths(e.target.value)}
+                            required
+                        />
+                    </label>
+                    <label>
+                        <span>Repayment frequency <Req /></span>
+                        <select
+                            value={repaymentFrequency}
+                            onChange={(e) => setRepaymentFrequency(e.target.value as LoanFrequency)}
+                        >
+                            <option value="Daily">Daily</option>
+                            <option value="Weekly">Weekly</option>
+                            <option value="Monthly">Monthly</option>
+                            <option value="Quarterly">Quarterly</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Interest rate (% p.a.) <Req /></span>
+                        <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            value={interestRate}
+                            onChange={(e) => setInterestRate(e.target.value)}
+                            required
+                        />
+                    </label>
+                    <label className="full-field">
+                        <span>Purpose <Opt /></span>
+                        <input
+                            value={purpose}
+                            onChange={(e) => setPurpose(e.target.value)}
+                            placeholder="e.g. Working capital, Home renovation, Medical expense"
+                        />
+                    </label>
+                    <label className="full-field">
+                        <span>Reason for modification <Req /></span>
+                        <textarea
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            placeholder="Explain why this loan application is being updated (mandatory for audit compliance)..."
+                            rows={3}
+                            required
+                        />
+                    </label>
+                    {error && <p className="form-error full-field">{error}</p>}
+                    <div className="admin-form-actions full-field">
+                        <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
+                        <button type="submit" className="primary-button" disabled={saving}>
+                            {saving ? <Loader2 size={15} className="spin" /> : <Pencil size={15} />}
+                            {saving ? 'Updating…' : 'Save changes'}
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    );
+}
+
 export function LoanDetail({
     record,
     onClose,
     onCollection,
     onLifecycle,
     onApprove,
+    onEdit,
+    onCancel,
     onToast,
     onViewReceipt,
 }: {
@@ -699,6 +920,8 @@ export function LoanDetail({
     onCollection: () => void;
     onLifecycle: (lifecycle: LoanLifecycle, status: Status, input?: LoanLifecycleInput) => void;
     onApprove: (input: ApproveLoanInput) => Promise<void>;
+    onEdit?: () => void;
+    onCancel?: () => void;
     onToast: (message: string) => void;
     onViewReceipt: (receipt: ReceiptData) => void;
 }) {
@@ -786,7 +1009,21 @@ export function LoanDetail({
                     )}
                 </section>
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Lifecycle and audit trail</h3><p>Approval, disbursement, delinquency, restructuring and closure events.</p></div><span>{record.events.length} events</span></div>{record.events.length ? <div className="customer-transaction-list">{record.events.map((event) => <div className="customer-transaction-row" key={event.id}><div><strong>{event.type}</strong><span>{event.date} · {event.actor}</span></div><div><b>{event.reference}</b><small>{event.note}</small></div></div>)}</div> : <p className="empty-state">No lifecycle or audit events recorded on the backend yet.</p>}</section>
-                <div className="loan-detail-actions customer-detail-actions"><button className="secondary-button" onClick={() => setStatementOpen(true)}><FileText size={15} /> View statement</button>{canApproveStage && roleCanApprove && <button className="secondary-button" onClick={() => setApprovalOpen(true)}>Approve</button>}{canDisburseStage && roleCanWriteLoan && <button className="secondary-button" onClick={() => setDisburseOpen(true)}>Disburse</button>}{record.loanId && isOpenLoan && roleCanComplete && <button className="secondary-button" onClick={() => setRescheduleOpen(true)}>Reschedule</button>}{record.outstandingAmount === 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Settled')}>Settle</button>}{record.outstandingAmount > 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Written off')}>Write off</button>}{roleCanWriteLoan && <button className="primary-button" onClick={onCollection}><Plus size={15} /> Record installment</button>}</div>
+                <div className="loan-detail-actions customer-detail-actions">
+                    <button className="secondary-button" onClick={() => setStatementOpen(true)}><FileText size={15} /> View statement</button>
+                    {record.applicationId && !record.loanId && record.status !== 'Inactive' && record.status !== 'Rejected' && (
+                        <>
+                            {onEdit && <button className="secondary-button" onClick={onEdit}><Pencil size={15} /> Edit application</button>}
+                            {onCancel && <button className="secondary-button" onClick={onCancel}><Trash2 size={15} /> Cancel application</button>}
+                        </>
+                    )}
+                    {canApproveStage && roleCanApprove && <button className="secondary-button" onClick={() => setApprovalOpen(true)}>Approve</button>}
+                    {canDisburseStage && roleCanWriteLoan && <button className="secondary-button" onClick={() => setDisburseOpen(true)}>Disburse</button>}
+                    {record.loanId && isOpenLoan && roleCanComplete && <button className="secondary-button" onClick={() => setRescheduleOpen(true)}>Reschedule</button>}
+                    {record.outstandingAmount === 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Settled')}>Settle</button>}
+                    {record.outstandingAmount > 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Written off')}>Write off</button>}
+                    {roleCanWriteLoan && <button className="primary-button" onClick={onCollection}><Plus size={15} /> Record installment</button>}
+                </div>
             </section>
         </div>
         {statementOpen && <LoanStatementModal record={record} onClose={() => setStatementOpen(false)} onViewReceipt={onViewReceipt} />}
@@ -901,7 +1138,7 @@ export function LoansPage() {
     const [statusFilter, setStatusFilter] = useState<'All' | Status>('All');
     const [loanTypeFilter, setLoanTypeFilter] = useState<'All' | LoanRecord['loanType']>('All');
     const [page, setPage] = useState(1);
-    const [modal, setModal] = useState<'account' | 'collection' | 'detail' | null>(null);
+    const [modal, setModal] = useState<'account' | 'collection' | 'detail' | 'edit' | 'cancel' | null>(null);
     const [selected, setSelected] = useState<LoanRecord | undefined>();
     const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
     const [toast, setToast] = useState('');
@@ -1025,6 +1262,38 @@ export function LoansPage() {
         if (!match) close();
         notify(`Loan application approved for ${formatCurrency(Number(input.approvedAmount))} on the backend.`);
     };
+    const saveEditApplication = async (input: { purpose?: string; amount?: number; tenureMonths?: number; repaymentFrequency?: LoanFrequency; interestRate?: number; reason: string }) => {
+        if (!selected) return;
+        const appId = selected.applicationId ?? selected.id;
+        try {
+            await loansRepository.updateApplication(appId, {
+                purpose: input.purpose,
+                amount: input.amount,
+                tenureMonths: input.tenureMonths,
+                repaymentFrequency: input.repaymentFrequency,
+                interestRate: input.interestRate,
+            });
+            const refreshed = await loansRepository.list();
+            setLoanRows(refreshed);
+            close();
+            notify('Loan application updated successfully.');
+        } catch (failure) {
+            notify(messageFor(failure, 'Unable to update loan application.'));
+        }
+    };
+    const saveCancelApplication = async (reason: string) => {
+        if (!selected) return;
+        const appId = selected.applicationId ?? selected.id;
+        try {
+            await loansRepository.cancelApplication(appId, reason);
+            const refreshed = await loansRepository.list();
+            setLoanRows(refreshed);
+            close();
+            notify('Loan application cancelled.');
+        } catch (failure) {
+            notify(messageFor(failure, 'Unable to cancel loan application.'));
+        }
+    };
     const openDetail = (record: LoanRecord) => {
         setSelected(record);
         setModal('detail');
@@ -1034,6 +1303,77 @@ export function LoansPage() {
                 .catch((reason) => { notify(messageFor(reason, 'Unable to load the loan ledger.')); });
         }
     };
-    return <div className="admin-page"><div className="page-heading"><div><div className="eyebrow">OPERATIONS / LOANS</div><h1>Loans</h1><p>Manage loan accounts, repayment schedules, collections and customer history.</p></div><button className="primary-button" onClick={() => setModal('account')}><Plus size={16} /> Create loan account</button></div><SummaryStrip items={[{ label: 'Active loans', value: String(loanRows.filter((row) => row.status === 'Active').length), tone: 'green' }, { label: 'Outstanding amount', value: `₹${(outstanding / 100000).toFixed(2)}L` }, { label: 'Due amount', value: `₹${dueAmount.toLocaleString('en-IN')}`, tone: 'orange' }, { label: 'Overdue accounts', value: String(loanRows.filter((row) => row.status === 'Overdue').length), tone: 'red' }]} /><section className="panel table-panel"><div className="filter-bar"><div className="filter-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search loan, customer, agent or reference..." aria-label="Search loans" /></div><div role="tablist" aria-label="Loan scheme tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '0 0 4px' }}>{(['All', 'Daily Loan', 'Weekly Loan', 'Personal Loan', 'Business Loan', 'Mortgage Loan', 'Gold Loan', 'SHG Loan', 'Other Loan'] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={loanTypeFilter === tab} onClick={() => { setLoanTypeFilter(tab); setPage(1); }} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid var(--border, #d7dbe0)', background: loanTypeFilter === tab ? 'var(--primary, #1f6feb)' : 'transparent', color: loanTypeFilter === tab ? '#fff' : 'inherit', cursor: 'pointer', fontSize: 13 }}>{tab === 'All' ? 'All loans' : tab.replace(' Loan', '')}{tab !== 'All' ? ` (${loanRows.filter((row) => row.loanType === tab).length})` : ''}</button>)}</div><select className="filter-button customer-status-filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as 'All' | Status); setPage(1); }} aria-label="Filter loans by status"><option value="All">All statuses</option><option value="Active">Active</option><option value="Pending">Pending</option><option value="Overdue">Overdue</option><option value="Completed">Completed</option><option value="Review">Review</option></select><button className="filter-button" onClick={() => notify('Loan due-date range selector is ready for local data.')}><CalendarDays size={15} /> Due range</button><button className="filter-button" onClick={() => { setStatusFilter('Overdue'); setPage(1); notify('Showing overdue loan accounts.'); }}><SlidersHorizontal size={15} /> Filters</button><button className="icon-button export-button" onClick={() => notify(`${filteredRows.length} loan account records prepared for export.`)} aria-label="Export loans"><Download size={16} /></button></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Loan account</th><th>Loan amount</th><th>Installment</th><th>Outstanding</th><th>Schedule</th><th>Status</th><th /></tr></thead><tbody>{loading ? <tr><td className="empty-state" colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#888' }}><Loader2 size={24} className="spin" style={{ margin: '0 auto 10px', display: 'block', opacity: 0.5 }} /> Loading loan accounts...</td></tr> : visibleRows.length ? visibleRows.map((row) => <tr key={row.id} onClick={() => openDetail(row)}><td><strong>{row.customerName}</strong><span>{row.id} · {row.customerId}</span><small>{row.loanType} · {row.interestRate}% p.a. · {row.tenureMonths} months · {row.lifecycle}</small></td><td><strong className="table-amount">₹{row.principal.toLocaleString('en-IN')}</strong><span>{row.loanDate}</span></td><td><strong className="table-amount">₹{row.installmentAmount.toLocaleString('en-IN')}</strong><span>{row.installments.length} entries</span></td><td><strong className="loan-outstanding-amount">₹{row.outstandingAmount.toLocaleString('en-IN')}</strong><span>Paid ₹{row.paidAmount.toLocaleString('en-IN')}</span></td><td><strong>{row.installments.filter((item) => item.status === 'Paid').length} paid</strong><span>{row.installments.filter((item) => item.status !== 'Paid').length} pending</span></td><td><StatusPill status={row.status} /></td><td><button className="row-action" onClick={(event) => { event.stopPropagation(); openDetail(row); }} aria-label={`Open ${row.id}`}><ArrowUpRight size={15} /></button></td></tr>) : <tr><td className="empty-state" colSpan={7}>No loan accounts match the current search and status filter.</td></tr>}</tbody></table></div><Pagination page={page} pageSize={pageSize} totalItems={filteredRows.length} itemName="loans" setPage={setPage} />
-</section>{modal === 'account' && <LoanModal mode="account" onClose={close} onSave={(input) => saveAccount(input as LoanInput)} />}{modal === 'collection' && selected && <LoanModal mode="collection" record={selected} onClose={close} onSave={(input) => saveCollection(input as LoanCollectionInput)} />}{modal === 'detail' && selected && <LoanDetail record={selected} onClose={close} onCollection={() => setModal('collection')} onLifecycle={updateLifecycle} onApprove={approveApplication} onToast={notify} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}{activeReceipt && <TransactionReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />}{toast && <div className="admin-toast"><CheckCircle2 size={16} />{toast}</div>}</div>;
+    return <div className="admin-page"><div className="page-heading"><div><div className="eyebrow">OPERATIONS / LOANS</div><h1>Loans</h1><p>Manage loan accounts, repayment schedules, collections and customer history.</p></div><button className="primary-button" onClick={() => setModal('account')}><Plus size={16} /> Create loan account</button></div><SummaryStrip items={[{ label: 'Active loans', value: String(loanRows.filter((row) => row.status === 'Active').length), tone: 'green' }, { label: 'Outstanding amount', value: `₹${(outstanding / 100000).toFixed(2)}L` }, { label: 'Due amount', value: `₹${dueAmount.toLocaleString('en-IN')}`, tone: 'orange' }, { label: 'Overdue accounts', value: String(loanRows.filter((row) => row.status === 'Overdue').length), tone: 'red' }]} /><section className="panel table-panel"><div className="filter-bar"><div className="filter-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search loan, customer, agent or reference..." aria-label="Search loans" /></div><div role="tablist" aria-label="Loan scheme tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '0 0 4px' }}>{(['All', 'Daily Loan', 'Weekly Loan', 'Personal Loan', 'Business Loan', 'Mortgage Loan', 'Gold Loan', 'SHG Loan', 'Other Loan'] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={loanTypeFilter === tab} onClick={() => { setLoanTypeFilter(tab); setPage(1); }} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid var(--border, #d7dbe0)', background: loanTypeFilter === tab ? 'var(--primary, #1f6feb)' : 'transparent', color: loanTypeFilter === tab ? '#fff' : 'inherit', cursor: 'pointer', fontSize: 13 }}>{tab === 'All' ? 'All loans' : tab.replace(' Loan', '')}{tab !== 'All' ? ` (${loanRows.filter((row) => row.loanType === tab).length})` : ''}</button>)}</div><select className="filter-button customer-status-filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as 'All' | Status); setPage(1); }} aria-label="Filter loans by status"><option value="All">All statuses</option><option value="Active">Active</option><option value="Pending">Pending</option><option value="Overdue">Overdue</option><option value="Completed">Completed</option><option value="Review">Review</option></select><button className="filter-button" onClick={() => notify('Loan due-date range selector is ready for local data.')}><CalendarDays size={15} /> Due range</button><button className="filter-button" onClick={() => { setStatusFilter('Overdue'); setPage(1); notify('Showing overdue loan accounts.'); }}><SlidersHorizontal size={15} /> Filters</button><button className="icon-button export-button" onClick={() => notify(`${filteredRows.length} loan account records prepared for export.`)} aria-label="Export loans"><Download size={16} /></button></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Loan account</th><th>Loan amount</th><th>Installment</th><th>Outstanding</th><th>Schedule</th><th>Status</th><th /></tr></thead><tbody>{loading ? <tr><td className="empty-state" colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#888' }}><Loader2 size={24} className="spin" style={{ margin: '0 auto 10px', display: 'block', opacity: 0.5 }} /> Loading loan accounts...</td></tr> : visibleRows.length ? visibleRows.map((row) => (
+    <tr key={row.id} onClick={() => openDetail(row)}>
+        <td>
+            <strong>{row.customerName}</strong>
+            <span className="table-sub">{row.id} · {row.customerId}</span>
+            <small className="table-sub">{row.loanType} · {row.interestRate}% p.a. · {row.tenureMonths} months · {row.lifecycle}</small>
+        </td>
+        <td>
+            <strong className="table-amount">₹{row.principal.toLocaleString('en-IN')}</strong>
+            <span className="table-sub">{row.loanDate}</span>
+        </td>
+        <td>
+            <strong className="table-amount">
+                ₹{row.installmentAmount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)', marginLeft: 3 }}>
+                    /{row.repaymentFrequency ? row.repaymentFrequency.toLowerCase() : 'instalment'}
+                </span>
+            </strong>
+            <span className="table-sub">
+                {row.installments.length > 0 ? (
+                    `${row.installments.length} instalments`
+                ) : (
+                    <span style={{ color: '#d97706', fontSize: 11, fontWeight: 500 }}>Pending disbursement</span>
+                )}
+            </span>
+        </td>
+        <td>
+            <strong className="loan-outstanding-amount">₹{row.outstandingAmount.toLocaleString('en-IN')}</strong>
+            <span className="table-sub">Paid: ₹{row.paidAmount.toLocaleString('en-IN')}</span>
+        </td>
+        <td>
+            {row.installments.length > 0 ? (
+                <>
+                    <strong className="green-text">{row.installments.filter((item) => item.status === 'Paid').length} paid</strong>
+                    <span className="table-sub orange-text">{row.installments.filter((item) => item.status !== 'Paid').length} pending</span>
+                </>
+            ) : (
+                <span className="table-sub" style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
+                    No schedule yet
+                </span>
+            )}
+        </td>
+        <td><StatusPill status={row.status} /></td>
+        <td>
+            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                {row.applicationId && !row.loanId && row.status !== 'Inactive' && row.status !== 'Rejected' && (
+                    <>
+                        <button
+                            className="row-action"
+                            title="Edit application"
+                            onClick={(event) => { event.stopPropagation(); setSelected(row); setModal('edit'); }}
+                            aria-label={`Edit ${row.id}`}
+                        >
+                            <Pencil size={15} />
+                        </button>
+                        <button
+                            className="row-action row-action-danger"
+                            title="Cancel application"
+                            onClick={(event) => { event.stopPropagation(); setSelected(row); setModal('cancel'); }}
+                            aria-label={`Cancel ${row.id}`}
+                        >
+                            <Trash2 size={15} />
+                        </button>
+                    </>
+                )}
+                <button className="row-action" onClick={(event) => { event.stopPropagation(); openDetail(row); }} aria-label={`Open ${row.id}`} title="View details">
+                    <ArrowUpRight size={15} />
+                </button>
+            </div>
+        </td>
+    </tr>
+)) : <tr><td className="empty-state" colSpan={7}>No loan accounts match the current search and status filter.</td></tr>}</tbody></table></div><Pagination page={page} pageSize={pageSize} totalItems={filteredRows.length} itemName="loans" setPage={setPage} />
+</section>{modal === 'account' && <LoanModal mode="account" onClose={close} onSave={(input) => saveAccount(input as LoanInput)} />}{modal === 'collection' && selected && <LoanModal mode="collection" record={selected} onClose={close} onSave={(input) => saveCollection(input as LoanCollectionInput)} />}{modal === 'detail' && selected && <LoanDetail record={selected} onClose={close} onCollection={() => setModal('collection')} onLifecycle={updateLifecycle} onApprove={approveApplication} onEdit={() => setModal('edit')} onCancel={() => setModal('cancel')} onToast={notify} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}{modal === 'edit' && selected && <LoanEditModal record={selected} onClose={close} onSave={saveEditApplication} />}{modal === 'cancel' && selected && <LoanCancelModal record={selected} onClose={close} onSave={saveCancelApplication} />}{activeReceipt && <TransactionReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />}{toast && <div className="admin-toast"><CheckCircle2 size={16} />{toast}</div>}</div>;
 }

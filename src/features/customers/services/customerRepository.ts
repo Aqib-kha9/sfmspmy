@@ -58,6 +58,7 @@ export interface CustomerRepository {
     create(input: CustomerInput): Promise<Customer>;
     update(id: string, input: CustomerInput): Promise<Customer>;
     approve(id: string): Promise<Customer>;
+    delete(id: string, reason?: string): Promise<Customer>;
     /**
      * Loads the server-side savings statement (accounts + ledger entries +
      * opening/closing balances + period) for a single customer.

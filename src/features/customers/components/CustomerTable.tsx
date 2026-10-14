@@ -1,4 +1,4 @@
-import { CheckCircle2, Eye, Pencil } from 'lucide-react';
+import { CheckCircle2, Eye, Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type Column } from '../../../components/data-table/DataTable';
 import { StatusPill } from '../../../components/ui/StatusPill';
 import type { Customer } from '../types/customer.types';
@@ -7,11 +7,13 @@ export function CustomerTable({
     rows,
     onDetail,
     onEdit,
+    onDelete,
     onApprove,
 }: {
     rows: Customer[];
     onDetail: (customer: Customer) => void;
     onEdit?: (customer: Customer) => void;
+    onDelete?: (customer: Customer) => void;
     onApprove?: (customer: Customer) => void;
 }) {
     const columns: Column<Customer>[] = [
@@ -41,6 +43,17 @@ export function CustomerTable({
                     {onEdit && (
                         <button className="icon-button" title="Edit customer" aria-label={`Edit ${row.name}`} onClick={() => onEdit(row)}>
                             <Pencil size={15} />
+                        </button>
+                    )}
+                    {onDelete && (
+                        <button
+                            className="icon-button"
+                            title="Delete / deactivate customer"
+                            aria-label={`Delete ${row.name}`}
+                            onClick={() => onDelete(row)}
+                            style={{ color: '#dc2626' }}
+                        >
+                            <Trash2 size={15} />
                         </button>
                     )}
                 </div>

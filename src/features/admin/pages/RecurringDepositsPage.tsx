@@ -3,7 +3,7 @@
 import { Pagination } from '../../../components/ui/Pagination';
 import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { ArrowDownToLine, CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, Plus, Search, SlidersHorizontal, Table, TrendingUp } from 'lucide-react';
+import { ArrowDownToLine, CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, Pencil, Plus, Search, SlidersHorizontal, Table, TrendingUp } from 'lucide-react';
 import { rdRepository } from '../services/operations/rdApiRepository';
 import type { RDInput as RdRepoInput, RDCollectionInput as RdRepoCollectionInput, SchemeView as RdSchemeView } from '../services/operations/rdApiRepository';
 import { customerRepository } from '../../customers/services/customerApiRepository';
@@ -707,9 +707,19 @@ export function RecurringDepositsPage() {
                                             </td>
                                             <td><StatusPill status={row.status} /></td>
                                             <td>
-                                                <button className="row-action" onClick={(event) => { event.stopPropagation(); openDetail(row); }} aria-label={`Open ${row.id}`}>
-                                                    <ChevronRight size={16} />
-                                                </button>
+                                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                                    <button
+                                                        className="row-action"
+                                                        title="Edit RD account"
+                                                        onClick={(event) => { event.stopPropagation(); setSelected(row); setModal('account'); }}
+                                                        aria-label={`Edit ${row.id}`}
+                                                    >
+                                                        <Pencil size={15} />
+                                                    </button>
+                                                    <button className="row-action" onClick={(event) => { event.stopPropagation(); openDetail(row); }} aria-label={`Open ${row.id}`} title="View details">
+                                                        <ChevronRight size={16} />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );

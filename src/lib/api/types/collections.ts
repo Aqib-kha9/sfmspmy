@@ -5,6 +5,7 @@
 
 export type CollectionProductType =
     | 'savingsDeposit'
+    | 'dailyDeposit'
     | 'recurringDeposit'
     | 'loan'
     | 'penalty';

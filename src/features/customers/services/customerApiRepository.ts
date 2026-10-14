@@ -661,6 +661,19 @@ export class ApiCustomerRepository implements CustomerRepository {
             throw new Error(messageFor(error, 'Unable to approve the customer.'));
         }
     }
+
+    async delete(id: string, reason = 'Customer profile deleted / deactivated'): Promise<Customer> {
+        const customerId = await this.resolveCustomerId(id);
+        try {
+            const deleted = await apiClient.request<CustomerDetailView>(`/customers/${customerId}`, {
+                method: 'DELETE',
+                body: { reason },
+            });
+            return toCustomer(deleted, deleted);
+        } catch (error) {
+            throw new Error(messageFor(error, 'Unable to delete the customer.'));
+        }
+    }
 }
 
 export const customerRepository: CustomerRepository = new ApiCustomerRepository();

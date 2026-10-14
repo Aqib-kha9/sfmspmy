@@ -2,7 +2,7 @@
 
 import { Pagination } from '../../../components/ui/Pagination';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, LockKeyhole, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, LockKeyhole, Pencil, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { depositsRepository } from '../services/operations/depositsApiRepository';
 import type { DepositInput as DepositRepoInput, DepositTransactionInput as DepositRepoTransactionInput, DepositRecord as DepositRecordView, DepositTransaction as DepositTransactionView, DepositStatement, DepositProduct, DepositUpdateInput, DepositStatementQuery } from '../services/operations/depositsApiRepository';
 import { customerRepository } from '../../customers/services/customerApiRepository';
@@ -609,9 +609,19 @@ export function DepositsPage() {
                             <StatusPill status={row.status} />
                         </td>
                         <td>
-                            <button className="row-action" onClick={(event) => { event.stopPropagation(); setSelected(row); setModal('detail'); }} aria-label={`Open ${row.id}`}>
-                                <ChevronRight size={16} />
-                            </button>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <button
+                                    className="row-action"
+                                    title="Edit deposit account"
+                                    onClick={(event) => { event.stopPropagation(); setSelected(row); setModal('edit'); }}
+                                    aria-label={`Edit ${row.id}`}
+                                >
+                                    <Pencil size={15} />
+                                </button>
+                                <button className="row-action" onClick={(event) => { event.stopPropagation(); setSelected(row); setModal('detail'); }} aria-label={`Open ${row.id}`} title="View details">
+                                    <ChevronRight size={16} />
+                                </button>
+                            </div>
                         </td>
                     </tr>) : <tr>
                         <td colSpan={5} className="empty-state">No deposit accounts match the current search or filter.</td>

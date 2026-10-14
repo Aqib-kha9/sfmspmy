@@ -180,6 +180,15 @@ export interface LoanRepository {
     /** Officer recommendation step required before the President/M.D. can approve. */
     recommend(applicationId: string): Promise<void>;
     reject(applicationId: string, reason: string): Promise<void>;
+    updateApplication(applicationId: string, input: {
+        purpose?: string;
+        amount?: number;
+        tenureMonths?: number;
+        repaymentFrequency?: LoanFrequency;
+        interestRate?: number;
+        documents?: Record<string, string>;
+    }): Promise<void>;
+    cancelApplication(applicationId: string, reason: string): Promise<void>;
     disburse(applicationId: string, disbursedOn?: string): Promise<void>;
     reschedule(loanId: string, input: RescheduleLoanInput): Promise<void>;
     settle(loanId: string, input?: SettleLoanInput): Promise<LoanSettleResult>;
@@ -428,7 +437,7 @@ function loanToRecord(view: LoanView, products: Map<string, LoanProductView>, in
         moratoriumMonths: docNumber(documents, 'moratoriumMonths'),
         lateFee: docNumber(documents, 'lateFee'),
         penalInterestRate: docNumber(documents, 'penalInterestRate'),
-        installmentAmount: firstInstalment?.amount ?? fallbackInstalment,
+        installmentAmount: firstInstalment?.amount ?? docNumber(documents, 'installmentAmount') ?? fallbackInstalment,
         outstandingAmount: Number(view.outstandingAmount),
         paidAmount: Number(view.totalPaid),
         pendingAmount: Number(view.outstandingAmount),
@@ -485,13 +494,20 @@ function applicationToRecord(view: LoanApplicationView, products: Map<string, Lo
         gracePeriodDays: docNumber(documents, 'gracePeriodDays'),
         moratoriumMonths: docNumber(documents, 'moratoriumMonths'),
         lateFee: docNumber(documents, 'lateFee'),
-        installmentAmount: (() => {
+        installmentAmount: docNumber(documents, 'installmentAmount') ?? (() => {
             if (tenure <= 0) return amount;
             const freq = view.repaymentFrequency;
             let count = tenure;
             if (freq === 'daily') count = Math.max(1, Math.round(tenure * 30));
             else if (freq === 'weekly') count = Math.max(1, Math.round(tenure * 4.333));
             else if (freq === 'quarterly') count = Math.max(1, Math.round(tenure / 3));
+
+            const isFlat = product?.interestMethod === 'flat' || docString(documents, 'interestMethod') === 'Flat';
+            if (isFlat && rate > 0) {
+                const totalInterest = (amount * rate * tenure) / 1200;
+                const totalPayable = amount + totalInterest;
+                return count > 0 ? Math.round((totalPayable / count) * 100) / 100 : totalPayable;
+            }
             return count > 0 ? Math.round((amount / count) * 100) / 100 : amount;
         })(),
         outstandingAmount: amount,
@@ -627,6 +643,7 @@ export class ApiLoanRepository implements LoanRepository {
             monthlyIncome: input.monthlyIncome,
             collateralLtv: input.collateralLtv,
             initialLifecycleStatus: input.status,
+            installmentAmount: input.installmentAmount,
         };
         const payload: CreateLoanApplicationInput = {
             customerId,
@@ -679,6 +696,34 @@ export class ApiLoanRepository implements LoanRepository {
     async reject(applicationId: string, reason: string): Promise<void> {
         const payload: ApproveLoanInput = { rejectionReason: reason };
         await apiClient.request(`/loans/applications/${applicationId}/approve`, { method: 'POST', body: payload });
+    }
+
+    async updateApplication(applicationId: string, input: {
+        purpose?: string;
+        amount?: number;
+        tenureMonths?: number;
+        repaymentFrequency?: LoanFrequency;
+        interestRate?: number;
+        documents?: Record<string, string>;
+    }): Promise<void> {
+        await apiClient.request(`/loans/applications/${applicationId}`, {
+            method: 'PATCH',
+            body: {
+                purpose: input.purpose,
+                amount: input.amount ? String(input.amount) : undefined,
+                tenureMonths: input.tenureMonths,
+                repaymentFrequency: input.repaymentFrequency ? FREQUENCY_TO_API[input.repaymentFrequency] : undefined,
+                interestRate: input.interestRate ? String(input.interestRate) : undefined,
+                documents: input.documents,
+            },
+        });
+    }
+
+    async cancelApplication(applicationId: string, reason: string): Promise<void> {
+        await apiClient.request(`/loans/applications/${applicationId}/cancel`, {
+            method: 'POST',
+            body: { reason },
+        });
     }
 
     async disburse(applicationId: string, disbursedOn?: string): Promise<void> {
