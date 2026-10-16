@@ -1,6 +1,8 @@
 import { apiClient } from '../../../../lib/api/apiClient';
 import type {
     AllocateCollectionInput,
+    BulkReviewCollectionInput,
+    BulkReviewResult,
     CollectionMode,
     CollectionProductType,
     CollectionSubmissionStatus,
@@ -106,6 +108,7 @@ export interface CollectionsRepository {
     totals(query?: CollectionsQuery): Promise<CollectionTotalsView>;
     listVisits(query?: ListVisitsQuery): Promise<ListVisitsResult>;
     review(id: string, input: ReviewCollectionInput): Promise<CollectionRecord>;
+    bulkReview(input: BulkReviewCollectionInput): Promise<BulkReviewResult>;
     reverse(id: string, input: ReverseCollectionInput): Promise<CollectionRecord>;
     deleteDuplicate(id: string, input: DeleteDuplicateInput): Promise<CollectionRecord>;
     update(id: string, input: UpdateCollectionInput): Promise<CollectionRecord>;
@@ -291,6 +294,13 @@ export class ApiCollectionsRepository implements CollectionsRepository {
             body: input,
         });
         return toCollectionRecord(view);
+    }
+
+    async bulkReview(input: BulkReviewCollectionInput): Promise<BulkReviewResult> {
+        return apiClient.request<BulkReviewResult>('/collections/bulk-review', {
+            method: 'POST',
+            body: input,
+        });
     }
 
     async reverse(id: string, input: ReverseCollectionInput): Promise<CollectionRecord> {

@@ -189,6 +189,8 @@ export interface LoanRepository {
         documents?: Record<string, string>;
     }): Promise<void>;
     cancelApplication(applicationId: string, reason: string): Promise<void>;
+    /** Permanently deletes an undisbursed loan application (for mistake entries). */
+    purgeApplication(applicationId: string, reason?: string): Promise<void>;
     disburse(applicationId: string, disbursedOn?: string): Promise<void>;
     reschedule(loanId: string, input: RescheduleLoanInput): Promise<void>;
     settle(loanId: string, input?: SettleLoanInput): Promise<LoanSettleResult>;
@@ -723,6 +725,13 @@ export class ApiLoanRepository implements LoanRepository {
         await apiClient.request(`/loans/applications/${applicationId}/cancel`, {
             method: 'POST',
             body: { reason },
+        });
+    }
+
+    async purgeApplication(applicationId: string, reason?: string): Promise<void> {
+        await apiClient.request(`/loans/applications/${applicationId}?purge=true`, {
+            method: 'DELETE',
+            body: reason ? { reason } : undefined,
         });
     }
 

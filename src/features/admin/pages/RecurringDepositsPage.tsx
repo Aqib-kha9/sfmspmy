@@ -118,10 +118,27 @@ export function firstRdDueDate(openedOn: string, dueDay: string): string {
     const day = Number.parseInt(dueDay, 10);
     const safe = Number.isFinite(day) && day >= 1 && day <= 31 ? day : 1;
     const candidate = new Date(base.getFullYear(), base.getMonth(), safe);
-    if (candidate <= base) candidate.setMonth(candidate.getMonth() + 1);
+    if (candidate < base) candidate.setMonth(candidate.getMonth() + 1);
     return toYmd(candidate);
 }
 
+/** Computes the expected number of instalments for a scheme tenure and frequency. */
+export function getExpectedInstallmentCount(
+    frequency: RDRecord['frequency'] | 'daily' | 'weekly' | 'monthly' | 'quarterly',
+    tenureMonths: number,
+): number {
+    const freq = frequency.toLowerCase();
+    if (freq === 'daily') {
+        return tenureMonths === 6 ? 180 : Math.round(tenureMonths * 30);
+    }
+    if (freq === 'weekly') {
+        return Math.round((tenureMonths * 52) / 12);
+    }
+    if (freq === 'quarterly') {
+        return Math.max(1, Math.round(tenureMonths / 3));
+    }
+    return Math.max(1, tenureMonths);
+}
 
 /** Steps one instalment interval at the given frequency (backend parity). */
 export function nextRdDueDate(value: string, frequency: RDRecord['frequency']): string {
@@ -132,14 +149,15 @@ export function nextRdDueDate(value: string, frequency: RDRecord['frequency']): 
 }
 
 /**
- * Builds the instalment grid from the first due date up to and including the
- * maturity date. Sunday due dates shift to the next working day without moving
- * the underlying grid, exactly like the backend scheduler.
+ * Builds the instalment grid from the first due date up to (exclusive) the
+ * maturity date, capped at count instalments. Sunday due dates shift to the next
+ * working day without moving the underlying grid, exactly like the backend scheduler.
  */
-export function rdInstalmentDates(firstDue: string, maturityDate: string, frequency: RDRecord['frequency']): string[] {
+export function rdInstalmentDates(firstDue: string, maturityDate: string, frequency: RDRecord['frequency'], count?: number): string[] {
     const dates: string[] = [];
     let cursor = firstDue;
-    while (cursor && maturityDate && cursor <= maturityDate && dates.length < 1000) {
+    const max = count ?? 1000;
+    while (cursor && maturityDate && cursor < maturityDate && dates.length < max) {
         let working = parseYmd(cursor) ?? new Date();
         while (working.getDay() === 0) {
             working = new Date(working.getFullYear(), working.getMonth(), working.getDate() + 1);
@@ -260,13 +278,20 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
             setDueDay('Daily');
             setTenureMonths('6');
             setInstallmentCount('180');
-            const derivedMaturity = addDaysYmd(openedOn, 181);
+            const derivedMaturity = addDaysYmd(openedOn, 180);
             setMaturityDate(derivedMaturity);
         } else {
             setTenureMonths((current) => {
                 const value = Number(current);
                 const inRange = Number.isFinite(value) && value >= scheme.minDurationMonths && value <= scheme.maxDurationMonths;
                 return inRange ? current : String(scheme.minDurationMonths);
+            });
+            setDueDay((current) => {
+                if (current.toLowerCase() === 'daily' || !current) {
+                    const openDate = parseYmd(openedOn);
+                    return openDate ? String(openDate.getDate()) : '10';
+                }
+                return current;
             });
         }
         setAmount((current) => {
@@ -288,10 +313,16 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
         selectedScheme && amount && Number.isFinite(amountNumber) && schemeMaxInstalment !== undefined && amountNumber > schemeMaxInstalment,
     );
     const isDailySelected = frequency === 'Daily' || selectedScheme?.frequency === 'daily' || selectedScheme?.code === 'RD-DLY';
-    const effectiveDueDay = mode === 'account' ? (isDailySelected ? 'Daily' : (dueDay || '1')) : dueDay;
+    const effectiveDueDay = mode === 'account'
+        ? (isDailySelected ? 'Daily' : (dueDay.toLowerCase() === 'daily' ? String(parseYmd(openedOn)?.getDate() ?? 10) : (dueDay || '10')))
+        : dueDay;
     const firstDuePreview = mode === 'account' ? (isDailySelected ? openedOn : firstRdDueDate(openedOn, effectiveDueDay)) : '';
+    const termNumber = Number(tenureMonths) || 12;
+    const expectedCountPreview = mode === 'account'
+        ? (isDailySelected ? 180 : getExpectedInstallmentCount(frequency, termNumber))
+        : 0;
     const schedulePreview = mode === 'account' && firstDuePreview && maturityDate && openedOn
-        ? rdInstalmentDates(firstDuePreview, maturityDate, frequency)
+        ? rdInstalmentDates(firstDuePreview, maturityDate, frequency, expectedCountPreview)
         : [];
     const tenurePreview = mode === 'account' && firstDuePreview && maturityDate ? monthsBetweenYmd(firstDuePreview, maturityDate) : 0;
     const termOutOfRange = Boolean(
@@ -310,12 +341,17 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
         const scheme = schemes.find((item) => item.code === productCode);
         const isDaily = frequency === 'Daily' || scheme?.frequency === 'daily' || scheme?.code === 'RD-DLY';
         if (isDaily) {
-            const derivedMaturity = addDaysYmd(openedOn, 181);
+            const derivedMaturity = addDaysYmd(openedOn, 180);
             setMaturityDate((current) => (current === derivedMaturity ? current : derivedMaturity));
             setTenureMonths((current) => (current === '6' ? current : '6'));
             setInstallmentCount((current) => (current === '180' ? current : '180'));
             setDueDay((current) => (current === 'Daily' ? current : 'Daily'));
             return;
+        }
+        if (dueDay.toLowerCase() === 'daily') {
+            const openDate = parseYmd(openedOn);
+            const fallbackDay = openDate ? String(openDate.getDate()) : '10';
+            setDueDay(fallbackDay);
         }
         const derivedFirstDue = firstRdDueDate(openedOn, effectiveDueDay);
         let term = Number(tenureMonths);
@@ -325,10 +361,10 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
         }
         if (!Number.isFinite(term) || term <= 0) return;
         const derivedMaturity = addMonthsYmd(derivedFirstDue, term);
-        const dates = rdInstalmentDates(derivedFirstDue, derivedMaturity, frequency);
+        const expectedCount = getExpectedInstallmentCount(frequency, term);
         setMaturityDate((current) => (current === derivedMaturity ? current : derivedMaturity));
-        setInstallmentCount((current) => (String(dates.length) === current ? current : String(dates.length)));
-    }, [mode, openedOn, effectiveDueDay, frequency, tenureMonths, productCode, schemes]);
+        setInstallmentCount(String(expectedCount));
+    }, [mode, openedOn, effectiveDueDay, frequency, tenureMonths, productCode, schemes, dueDay]);
 
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         if (saving) return;
@@ -343,9 +379,8 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
             }
             if (mode === 'account') {
                 if (!customerId.trim() || !openedOn || !maturityDate) { setError('Customer mapping and account dates are required.'); return; }
-                const scheduleDates = rdInstalmentDates(firstDuePreview, maturityDate, frequency);
-                const count = isDailySelected ? 180 : (scheduleDates.length || (installmentCount ? Number(installmentCount) : undefined));
-                await onSave({ customerId: customerId.trim(), monthlyAmount: Number(amount), frequency, installmentDueDate: effectiveDueDay, openedOn, maturityDate, status, productCode: productCode || undefined, branch: branch || undefined, tenureMonths: tenureMonths ? Number(tenureMonths) : undefined, installmentCount: count, interestMethod, interestRate: interestRate ? Number(interestRate) : undefined, penaltyTerms: penaltyTerms || undefined, maturityInstructions, nomineeName: nomineeName || undefined, nomineePhone: nomineePhone || undefined, nomineeRelation: nomineeRelation || undefined, openingChannel, documentReferences: documentReferences || undefined });
+                const expected = isDailySelected ? 180 : getExpectedInstallmentCount(frequency, Number(tenureMonths) || 12);
+                await onSave({ customerId: customerId.trim(), monthlyAmount: Number(amount), frequency, installmentDueDate: effectiveDueDay, openedOn, maturityDate, status, productCode: productCode || undefined, branch: branch || undefined, tenureMonths: tenureMonths ? Number(tenureMonths) : undefined, installmentCount: expected, interestMethod, interestRate: interestRate ? Number(interestRate) : undefined, penaltyTerms: penaltyTerms || undefined, maturityInstructions, nomineeName: nomineeName || undefined, nomineePhone: nomineePhone || undefined, nomineeRelation: nomineeRelation || undefined, openingChannel, documentReferences: documentReferences || undefined });
                 return;
             }
             if (!record || !reference.trim()) { setError('Receipt reference is required for collection entry.'); return; }

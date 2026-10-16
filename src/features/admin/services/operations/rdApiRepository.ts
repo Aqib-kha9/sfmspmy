@@ -380,12 +380,13 @@ function formatYmd(date: Date): string {
 
 /** Derives the first instalment due date from the opening date and due day. */
 function firstDueDateOf(openedOn: string, dueDay: string): string {
+    if (!dueDay || dueDay.toLowerCase() === 'daily') return openedOn;
     const day = Number.parseInt(dueDay, 10);
     const safe = Number.isFinite(day) && day >= 1 && day <= 31 ? day : 1;
     const base = openedOn ? new Date(`${openedOn}T00:00:00`) : new Date();
     if (Number.isNaN(base.getTime())) return formatYmd(new Date());
     const candidate = new Date(base.getFullYear(), base.getMonth(), safe);
-    if (candidate <= base) candidate.setMonth(candidate.getMonth() + 1);
+    if (candidate < base) candidate.setMonth(candidate.getMonth() + 1);
     return formatYmd(candidate);
 }
 

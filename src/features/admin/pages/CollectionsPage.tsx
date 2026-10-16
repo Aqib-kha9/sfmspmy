@@ -481,44 +481,142 @@ export function CollectionDetail({ record, onClose, onToast, onReview, onAllocat
 export function ScopedCollectionsPage() {
     const { hasRole } = useAuth();
     const canRecordEntry = hasRole('managing_director', 'president', 'vice_president', 'manager');
+    const support = useActionSupport(true);
     const [collectionRows, setCollectionRows] = useState<CollectionRecord[]>([]);
     const [totalAmount, setTotalAmount] = useState<string>('0');
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [agentFilter, setAgentFilter] = useState('');
     const [typeFilter, setTypeFilter] = useState<'All' | CollectionRecord['collectionType']>('All');
     const [statusFilter, setStatusFilter] = useState<'All' | CollectionRecord['status']>('All');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [page, setPage] = useState(1);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [bulkProcessing, setBulkProcessing] = useState(false);
     const [modal, setModal] = useState<'entry' | 'review' | 'allocate' | 'delete-duplicate' | 'reverse' | 'detail' | 'edit' | null>(null);
     const [selected, setSelected] = useState<CollectionRecord | undefined>();
     const [toast, setToast] = useState('');
-    const pageSize = 4;
+    const pageSize = 10;
     const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600); };
     const close = () => { setModal(null); setSelected(undefined); };
 
     useEffect(() => {
         let active = true;
         setLoading(true);
-        collectionsRepository.list({ search, status: statusFilter, type: typeFilter, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
+        collectionsRepository.list({ search, agentId: agentFilter || undefined, status: statusFilter, type: typeFilter, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
             .then((rows) => { if (active) setCollectionRows(rows); })
             .catch((reason) => { if (active) notify(messageFor(reason, 'Unable to load collections.')); })
             .finally(() => { if (active) setLoading(false); });
         return () => { active = false; };
-    }, [search, statusFilter, typeFilter, dateFrom, dateTo, refreshKey]);
+    }, [search, agentFilter, statusFilter, typeFilter, dateFrom, dateTo, refreshKey]);
 
     useEffect(() => {
         let active = true;
-        collectionsRepository.totals({ dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
+        collectionsRepository.totals({ agentId: agentFilter || undefined, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
             .then((totals) => { if (active) setTotalAmount(totals.total); })
             .catch(() => undefined);
         return () => { active = false; };
-    }, [dateFrom, dateTo, refreshKey]);
+    }, [agentFilter, dateFrom, dateTo, refreshKey]);
 
     const pageCount = Math.max(1, Math.ceil(collectionRows.length / pageSize));
     const visibleRows = collectionRows.slice((page - 1) * pageSize, page * pageSize);
     const pendingAmount = collectionRows.filter((row) => row.status !== 'Completed').reduce((total, row) => total + row.amount, 0);
+
+    const loanRows = collectionRows.filter((row) => row.collectionType === 'Loan repayment');
+    const rdRows = collectionRows.filter((row) => row.collectionType === 'RD installment');
+    const ddRows = collectionRows.filter((row) => row.collectionType === 'Daily collection');
+    const penaltyRows = collectionRows.filter((row) => row.collectionType === 'Penalty');
+
+    const loanTotal = loanRows.reduce((sum, r) => sum + r.amount, 0);
+    const rdTotal = rdRows.reduce((sum, r) => sum + r.amount, 0);
+    const ddTotal = ddRows.reduce((sum, r) => sum + r.amount, 0);
+    const penaltyTotal = penaltyRows.reduce((sum, r) => sum + r.amount, 0);
+
+    const reviewableRowsOnPage = visibleRows.filter((row) => row.status !== 'Completed' && row.status !== 'Rejected');
+    const allReviewableOnPageSelected = reviewableRowsOnPage.length > 0 && reviewableRowsOnPage.every((row) => selectedIds.has(row.collectionId));
+
+    const toggleSelectAll = () => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (allReviewableOnPageSelected) {
+                for (const row of reviewableRowsOnPage) next.delete(row.collectionId);
+            } else {
+                for (const row of reviewableRowsOnPage) next.add(row.collectionId);
+            }
+            return next;
+        });
+    };
+
+    const toggleSelectRow = (collectionId: string) => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(collectionId)) next.delete(collectionId);
+            else next.add(collectionId);
+            return next;
+        });
+    };
+
+    const selectAllWaitingInView = () => {
+        const allWaiting = collectionRows.filter((r) => r.status !== 'Completed' && r.status !== 'Rejected');
+        setSelectedIds(new Set(allWaiting.map((r) => r.collectionId)));
+    };
+
+    const clearSelection = () => setSelectedIds(new Set());
+
+    const selectedTotalAmount = collectionRows
+        .filter((r) => selectedIds.has(r.collectionId))
+        .reduce((sum, r) => sum + r.amount, 0);
+
+    const handleBulkApprove = async () => {
+        if (selectedIds.size === 0) return;
+        setBulkProcessing(true);
+        try {
+            const res = await collectionsRepository.bulkReview({
+                ids: Array.from(selectedIds),
+                decision: 'accepted',
+            });
+            notify(`Successfully approved ${res.processedCount} collections.`);
+            clearSelection();
+            refresh();
+        } catch (err) {
+            notify(messageFor(err, 'Unable to approve selected collections.'));
+        } finally {
+            setBulkProcessing(false);
+        }
+    };
+
+    const handleBulkReject = async () => {
+        if (selectedIds.size === 0) return;
+        const confirmed = window.confirm(`Reject ${selectedIds.size} selected collections?`);
+        if (!confirmed) return;
+        setBulkProcessing(true);
+        try {
+            const res = await collectionsRepository.bulkReview({
+                ids: Array.from(selectedIds),
+                decision: 'rejected',
+                remarks: 'Bulk rejected by office review',
+            });
+            notify(`Rejected ${res.processedCount} collections.`);
+            clearSelection();
+            refresh();
+        } catch (err) {
+            notify(messageFor(err, 'Unable to reject selected collections.'));
+        } finally {
+            setBulkProcessing(false);
+        }
+    };
+
+    const quickApprove = async (record: CollectionRecord) => {
+        try {
+            await collectionsRepository.review(record.collectionId, { decision: 'accepted' });
+            notify(`Collection ${record.id} approved.`);
+            refresh();
+        } catch (err) {
+            notify(messageFor(err, 'Unable to approve collection.'));
+        }
+    };
 
     const refresh = () => setRefreshKey((key) => key + 1);
 
@@ -611,20 +709,128 @@ export function ScopedCollectionsPage() {
 
     return <div className="admin-page"><div className="page-heading"><div><div className="eyebrow">OPERATIONS / DOORSTEP COLLECTIONS</div><h1>Collections</h1><p>Review synced doorstep collections, record emergency entries and resolve disputes against the audit trail.</p></div>{canRecordEntry && <button className="primary-button" onClick={() => setModal('entry')}><ArrowDownToLine size={16} /> Record collection</button>}</div>
         <SummaryStrip items={[{ label: 'Total collected', value: formatAmount(totalAmount), tone: 'green' }, { label: 'Entries in view', value: String(collectionRows.length) }, { label: 'Pending review', value: String(collectionRows.filter((row) => row.status === 'Pending' || row.status === 'Review').length), tone: 'orange' }, { label: 'Value awaiting review', value: formatAmount(pendingAmount), tone: 'orange' }]} />
+        
+        {/* Product-wise collection bifurcation requested by bank management */}
+        <div className="product-bifurcation-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', margin: '0 0 16px' }}>
+            <div style={{ background: '#fff', border: '1px solid var(--border, #e5e7eb)', borderRadius: '8px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 600 }}>DAILY LOANS (DLA)</span>
+                <strong style={{ fontSize: '18px', color: '#1f2937' }}>{formatAmount(loanTotal)}</strong>
+                <span style={{ fontSize: '12px', color: '#6b7280' }}>{loanRows.length} entries</span>
+            </div>
+            <div style={{ background: '#fff', border: '1px solid var(--border, #e5e7eb)', borderRadius: '8px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 600 }}>DAILY DEPOSITS (DD)</span>
+                <strong style={{ fontSize: '18px', color: '#1f2937' }}>{formatAmount(ddTotal)}</strong>
+                <span style={{ fontSize: '12px', color: '#6b7280' }}>{ddRows.length} entries</span>
+            </div>
+            <div style={{ background: '#fff', border: '1px solid var(--border, #e5e7eb)', borderRadius: '8px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 600 }}>RECURRING DEPOSITS (RD)</span>
+                <strong style={{ fontSize: '18px', color: '#1f2937' }}>{formatAmount(rdTotal)}</strong>
+                <span style={{ fontSize: '12px', color: '#6b7280' }}>{rdRows.length} entries</span>
+            </div>
+            <div style={{ background: '#fff', border: '1px solid var(--border, #e5e7eb)', borderRadius: '8px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 600 }}>PENALTIES & CHARGES</span>
+                <strong style={{ fontSize: '18px', color: '#1f2937' }}>{formatAmount(penaltyTotal)}</strong>
+                <span style={{ fontSize: '12px', color: '#6b7280' }}>{penaltyRows.length} entries</span>
+            </div>
+        </div>
+
         <section className="panel table-panel">
             <div className="filter-bar">
                 <div className="filter-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search receipt, customer, agent or reference..." aria-label="Search collections" /></div>
+                <select className="filter-button customer-status-filter" value={agentFilter} onChange={(event) => { setAgentFilter(event.target.value); setPage(1); }} aria-label="Filter collections by agent">
+                    <option value="">All collection agents</option>
+                    {support.agents.map((ag) => (
+                        <option key={ag.id} value={ag.id}>{ag.label}</option>
+                    ))}
+                </select>
                 <select className="filter-button customer-status-filter" value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value as typeof typeFilter); setPage(1); }} aria-label="Filter collections by type"><option value="All">All collection types</option><option>Daily collection</option><option>RD installment</option><option>Loan repayment</option><option>Penalty</option></select>
                 <select className="filter-button customer-status-filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as 'All' | CollectionRecord['status']); setPage(1); }} aria-label="Filter collections by status"><option value="All">All statuses</option><option>Completed</option><option>Pending</option><option>Review</option><option>Rejected</option></select>
                 <label className="filter-button"><CalendarDays size={15} /> From<input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} aria-label="Filter collections from date" /></label>
                 <label className="filter-button"><CalendarDays size={15} /> To<input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} aria-label="Filter collections to date" /></label>
                 <button className="filter-button" onClick={exportRows}><Download size={15} /> Export</button>
             </div>
+
+            {/* Bulk approval floating / top bar */}
+            {selectedIds.size > 0 && (
+                <div className="bulk-action-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', margin: '0 0 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, color: '#1e40af', fontSize: '13px' }}>
+                            {selectedIds.size} collection{selectedIds.size > 1 ? 's' : ''} selected · Total: {formatAmount(selectedTotalAmount)}
+                        </span>
+                        <button
+                            type="button"
+                            className="secondary-button"
+                            style={{ padding: '3px 8px', fontSize: '11px', height: 'auto' }}
+                            onClick={selectAllWaitingInView}
+                        >
+                            Select all {collectionRows.filter((r) => r.status !== 'Completed' && r.status !== 'Rejected').length} waiting
+                        </button>
+                        <button
+                            type="button"
+                            className="secondary-button"
+                            style={{ padding: '3px 8px', fontSize: '11px', height: 'auto' }}
+                            onClick={clearSelection}
+                        >
+                            Clear
+                        </button>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            type="button"
+                            className="secondary-button"
+                            style={{ color: '#dc2626', borderColor: '#fca5a5', padding: '6px 12px', fontSize: '12px' }}
+                            disabled={bulkProcessing}
+                            onClick={handleBulkReject}
+                        >
+                            {bulkProcessing ? <Loader2 size={13} className="spin" /> : null} Reject selected
+                        </button>
+                        <button
+                            type="button"
+                            className="primary-button"
+                            style={{ background: '#16a34a', borderColor: '#16a34a', padding: '6px 14px', fontSize: '12px' }}
+                            disabled={bulkProcessing}
+                            onClick={handleBulkApprove}
+                        >
+                            {bulkProcessing ? <Loader2 size={13} className="spin" /> : <CheckCircle2 size={14} />} Approve selected ({selectedIds.size})
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <div className="data-table-wrap">
                 <table className="data-table">
-                    <thead><tr><th>Customer</th><th>Receipt</th><th>Type</th><th>Amount</th><th>Agent</th><th>Status</th><th>Sync</th><th aria-label="Actions" /></tr></thead>
+                    <thead>
+                        <tr>
+                            <th style={{ width: 36, textAlign: 'center' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={allReviewableOnPageSelected}
+                                    onChange={toggleSelectAll}
+                                    title="Select all on this page"
+                                    aria-label="Select all on this page"
+                                />
+                            </th>
+                            <th>Customer</th>
+                            <th>Receipt</th>
+                            <th>Type</th>
+                            <th>Amount</th>
+                            <th>Agent</th>
+                            <th>Status</th>
+                            <th>Sync</th>
+                            <th aria-label="Actions" />
+                        </tr>
+                    </thead>
                     <tbody>
-                        {loading ? <tr><td colSpan={8} className="empty-state"><Loader2 className="spin" size={16} /> Loading collections…</td></tr> : visibleRows.length ? visibleRows.map((record) => <tr key={record.collectionId}>
+                        {loading ? <tr><td colSpan={9} className="empty-state"><Loader2 className="spin" size={16} /> Loading collections…</td></tr> : visibleRows.length ? visibleRows.map((record) => <tr key={record.collectionId}>
+                            <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                <input
+                                    type="checkbox"
+                                    checked={selectedIds.has(record.collectionId)}
+                                    disabled={record.status === 'Completed' || record.status === 'Rejected'}
+                                    onChange={() => toggleSelectRow(record.collectionId)}
+                                    aria-label={`Select collection ${record.id}`}
+                                />
+                            </td>
                             <td><strong>{record.customerName}</strong><span>{record.customerId} · {record.customerPhone}</span></td>
                             <td><strong>{record.id}</strong><span>{formatTimestamp(record.collectedOn)}</span></td>
                             <td>{record.collectionType}</td>
@@ -634,6 +840,17 @@ export function ScopedCollectionsPage() {
                             <td><span className="table-muted">{record.syncStatus}</span></td>
                             <td>
                                 <div className="customer-table-actions">
+                                    {canRecordEntry && record.status !== 'Completed' && record.status !== 'Rejected' && (
+                                        <button
+                                            className="icon-button"
+                                            title="Quick approve collection"
+                                            aria-label={`Approve ${record.id}`}
+                                            onClick={(e) => { e.stopPropagation(); void quickApprove(record); }}
+                                            style={{ color: '#16a34a' }}
+                                        >
+                                            <CheckCircle2 size={15} />
+                                        </button>
+                                    )}
                                     {canRecordEntry && record.status !== 'Completed' && (
                                         <>
                                             <button
@@ -671,7 +888,7 @@ export function ScopedCollectionsPage() {
                                     </button>
                                 </div>
                             </td>
-                        </tr>) : <tr><td colSpan={8} className="empty-state"><strong>No collections found</strong><span>Adjust the search or filters to see recorded doorstep collections.</span></td></tr>}
+                        </tr>) : <tr><td colSpan={9} className="empty-state"><strong>No collections found</strong><span>Adjust the search or filters to see recorded doorstep collections.</span></td></tr>}
                     </tbody>
                 </table>
             </div>

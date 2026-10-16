@@ -189,6 +189,18 @@ export type ReviewCollectionInput = {
     remarks?: string;
 };
 
+export type BulkReviewCollectionInput = {
+    ids: string[];
+    decision: ReviewDecision;
+    remarks?: string;
+};
+
+export type BulkReviewResult = {
+    processedCount: number;
+    decision: string;
+    ids: string[];
+};
+
 export type ReverseCollectionInput = {
     reason: string;
     proofOfRecord?: Record<string, unknown>[];
