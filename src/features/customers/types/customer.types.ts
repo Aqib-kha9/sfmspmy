@@ -1,3 +1,5 @@
+import type { MembershipCategory } from '../../../lib/api/types/customers';
+
 export type Status = 'Active' | 'Pending' | 'Completed' | 'Review' | 'Overdue' | 'Inactive' | 'Rejected' | 'Matched';
 export type CustomerType = 'Individual' | 'Cooperation' | 'Group' | 'SHG' | 'Organisation' | 'Minor' | 'Joint';
 export type CustomerServiceType = 'Savings' | 'Recurring deposit' | 'Fixed deposit' | 'Loan';
@@ -24,6 +26,7 @@ export type Customer = {
     address: string;
     permanentAddress: string;
     customerType: CustomerType;
+    membershipCategory?: MembershipCategory;
     dateOfBirth: string;
     gender: string;
     occupation: string;
@@ -50,4 +53,7 @@ export type Customer = {
     transactions: CustomerTransaction[];
 };
 
-export type CustomerInput = Omit<Customer, 'id' | 'systemId' | 'value' | 'accountSummary' | 'services' | 'transactions'>;
+export type CustomerInput = Omit<Customer, 'id' | 'systemId' | 'value' | 'accountSummary' | 'services' | 'transactions'> & {
+    initialAccountType?: 'Savings' | 'Daily' | 'Both' | 'None';
+    initialOpeningAmount?: string;
+};

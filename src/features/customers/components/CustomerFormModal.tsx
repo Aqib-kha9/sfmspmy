@@ -56,7 +56,10 @@ export function CustomerFormModal({ customer, onClose, onSave }: { customer?: Cu
         identityReference: customer?.identityReference ?? '', kycMethod: customer?.kycMethod ?? 'Document review', kycVerifiedOn: customer?.kycVerifiedOn ?? '', amlRiskCategory: customer?.amlRiskCategory ?? 'Standard',
         sourceOfFunds: customer?.sourceOfFunds ?? '', communicationPreference: customer?.communicationPreference ?? 'SMS', branch: customer?.branch ?? '',
         nomineeName: customer?.nomineeName ?? '', nomineePhone: customer?.nomineePhone ?? '', nomineeRelation: customer?.nomineeRelation ?? '', guardianName: customer?.guardianName ?? '', guardianPhone: customer?.guardianPhone ?? '',
-        assignedAgent: customer?.assignedAgent ?? 'Unassigned', consentCaptured: customer?.consentCaptured ?? false, documentReferences: customer?.documentReferences ?? '', registrationDate: customer?.registrationDate ?? ''
+        assignedAgent: customer?.assignedAgent ?? 'Unassigned', consentCaptured: customer?.consentCaptured ?? false, documentReferences: customer?.documentReferences ?? '', registrationDate: customer?.registrationDate ?? '',
+        membershipCategory: customer?.membershipCategory ?? 'Savings',
+        initialAccountType: customer ? undefined : 'Savings',
+        initialOpeningAmount: customer ? undefined : '100',
     });
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
@@ -117,6 +120,13 @@ export function CustomerFormModal({ customer, onClose, onSave }: { customer?: Cu
         <label><span>Email address <Opt /></span><input type="email" value={form.email} onChange={(event) => set('email', event.target.value)} /></label>
         <label><span>Alternate phone <Opt /></span><input value={form.alternatePhone} onChange={(event) => set('alternatePhone', event.target.value)} /></label>
         <label><span>Customer type <Opt /></span><select value={form.customerType} onChange={(event) => set('customerType', event.target.value)}><option>Individual</option><option>Cooperation</option><option>Group</option><option>SHG</option><option>Organisation</option><option>Minor</option><option>Joint</option></select></label>
+        <label><span>Membership category <Req /></span><select value={form.membershipCategory || 'Savings'} onChange={(event) => set('membershipCategory', event.target.value)}><option value="Savings">Savings / Deposit (बचत खाते)</option><option value="Daily">Daily Deposit (दैनिक ठेव)</option><option value="RD">Recurring Deposit (RD)</option><option value="Current">Current Account</option><option value="Loan">Loan</option></select></label>
+        {!customer && (
+            <>
+                <label><span>Initial account to open <Req /></span><select value={form.initialAccountType || 'Savings'} onChange={(event) => set('initialAccountType', event.target.value)}><option value="Savings">Savings Account (SAV-STD · Standard Savings)</option><option value="Daily">Daily Deposit Account (DAILY-180 · दैनिक ठेव)</option><option value="Both">Both (Savings + Daily Deposit)</option><option value="None">None (Open account later)</option></select></label>
+                <label><span>Opening deposit amount (₹) <Req /></span><input type="number" min="0" value={form.initialOpeningAmount ?? '100'} onChange={(event) => set('initialOpeningAmount', event.target.value)} placeholder="100" /></label>
+            </>
+        )}
         <label><span>Account / KYC status <Opt /></span><select value={form.status} onChange={(event) => set('status', event.target.value)}><option value="Pending">Pending</option><option value="Active">Verified / Active</option><option value="Review">Needs review</option><option value="Inactive">Inactive</option></select></label>
         <label><span>Date of birth / incorporation <Opt /></span><input type="date" value={form.dateOfBirth} onChange={(event) => set('dateOfBirth', event.target.value)} /></label>
         <label><span>Gender <Opt /></span><input value={form.gender} onChange={(event) => set('gender', event.target.value)} /></label>

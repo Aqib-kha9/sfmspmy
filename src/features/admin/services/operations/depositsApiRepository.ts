@@ -521,7 +521,7 @@ export class ApiDepositsRepository implements DepositsRepository {
         const suffix = querySuffix({
             search: query.search,
             customerId: query.customerId,
-            limit: query.limit ?? 50,
+            limit: query.limit ?? 100,
             offset: query.offset ?? 0,
         });
         const result = await apiClient.request<AccountListResult>(`/deposits/accounts${suffix}`, {
@@ -606,6 +606,15 @@ export class ApiDepositsRepository implements DepositsRepository {
         if (input.referenceNumber) body.referenceNumber = input.referenceNumber;
         if (input.description) body.description = input.description;
         const view = await apiClient.request<AccountView>('/deposits/accounts', { method: 'POST', body });
+        try {
+            await apiClient.request(`/deposits/accounts/${view.id}/approve`, {
+                method: 'POST',
+                body: { reason: 'Initial account opening approved' },
+            });
+            view.status = 'active';
+        } catch {
+            // Keep pending if caller is not authorized to approve
+        }
         this.remember(view);
         return this.present(view, await this.transactionsOf(view.id));
     }

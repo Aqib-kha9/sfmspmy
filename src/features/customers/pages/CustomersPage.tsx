@@ -8,6 +8,7 @@ import { CustomerDeleteModal } from '../components/CustomerDeleteModal';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
 import { CustomerTable } from '../components/CustomerTable';
 import { useCustomers } from '../hooks/useCustomers';
+import { customerRepository } from '../services/customerApiRepository';
 import type { Customer, CustomerInput, CustomerType, Status } from '../types/customer.types';
 
 const pageSize = 25;
@@ -237,7 +238,24 @@ export function CustomersPage() {
         {modal === 'add' && <CustomerFormModal onClose={close} onSave={save} />}
         {modal === 'edit' && canWrite && selected && <CustomerFormModal customer={selected} onClose={close} onSave={save} />}
         {modal === 'delete' && canWrite && selected && <CustomerDeleteModal customer={selected} onClose={close} onConfirm={handleDelete} />}
-        {modal === 'detail' && selected && <CustomerDetailModal customer={selected} onClose={close} onEdit={() => setModal('edit')} onDelete={canWrite ? () => setModal('delete') : undefined} onViewStatement={() => setModal('statement')} onApprove={canApprove ? () => void handleApprove(selected) : undefined} />}
+        {modal === 'detail' && selected && (
+            <CustomerDetailModal
+                customer={selected}
+                onClose={close}
+                onEdit={() => setModal('edit')}
+                onDelete={canWrite ? () => setModal('delete') : undefined}
+                onViewStatement={() => setModal('statement')}
+                onApprove={canApprove ? () => void handleApprove(selected) : undefined}
+                onRefreshCustomer={async () => {
+                    try {
+                        const updated = await customerRepository.detail(selected.systemId);
+                        setSelected(updated);
+                    } catch {
+                        // ignore
+                    }
+                }}
+            />
+        )}
         {modal === 'statement' && selected && <CustomerStatementModal customerId={selected.systemId} customerName={selected.name} onClose={() => setModal('detail')} loadStatement={statement} />}
         <Toast message={message} />
     </div>;

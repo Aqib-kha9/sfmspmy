@@ -77,7 +77,18 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
         if (mode !== 'account') return undefined;
         let active = true;
         depositsRepository.products()
-            .then((rows) => { if (active) setProducts(rows); })
+            .then((rows) => {
+                if (active) {
+                    setProducts(rows);
+                    if (!productCode && rows.length > 0) {
+                        const std = rows.find((p) => p.code === 'SAV-STD') || rows[0];
+                        if (std) {
+                            setProductCode(std.code);
+                            setOpeningAmount((curr) => curr || String(std.minOpeningAmount || 100));
+                        }
+                    }
+                }
+            })
             .catch(() => { if (active) setProducts([]); });
         return () => { active = false; };
     }, [mode]);

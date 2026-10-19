@@ -213,6 +213,7 @@ export type UpdateCustomerInput = Partial<
         | 'guardianPhone'
         | 'kycMethod'
         | 'registrationDate'
+        | 'membershipCategory'
     >
 > & {
     addresses?: CreateCustomerInput['addresses'];
