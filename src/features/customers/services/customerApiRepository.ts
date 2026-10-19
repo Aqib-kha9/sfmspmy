@@ -533,6 +533,33 @@ export class ApiCustomerRepository implements CustomerRepository {
                     // best-effort
                 }
             }
+
+            // Auto-create a default daily deposit account so agents can collect immediately
+            try {
+                const productsRes = await apiClient.request<{ items: Array<{ id: string; code: string }> }>('/deposits/products');
+                const dailyProduct = productsRes.items?.find((p) => p.code === 'DAILY-180') ||
+                                     productsRes.items?.find((p) => p.code === 'SAV-DLY') ||
+                                     productsRes.items?.[0];
+                if (dailyProduct) {
+                    const acc = await apiClient.request<{ id: string }>('/deposits/accounts', {
+                        method: 'POST',
+                        body: {
+                            customerId: created.id,
+                            productId: dailyProduct.id,
+                            openingDeposit: 0,
+                        },
+                    });
+                    if (acc?.id) {
+                        await apiClient.request(`/deposits/accounts/${acc.id}/approve`, {
+                            method: 'POST',
+                            body: { reason: 'Initial daily deposit account for field collection' },
+                        }).catch(() => {});
+                    }
+                }
+            } catch {
+                // best-effort
+            }
+
             const finalRefresh = await apiClient.request<CustomerDetailView>(`/customers/${created.id}`);
             return toCustomer(finalRefresh, finalRefresh);
         } catch (error) {
