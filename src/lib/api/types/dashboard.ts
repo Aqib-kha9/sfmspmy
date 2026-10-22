@@ -85,14 +85,30 @@ export type PendingItemKind =
 export interface PendingItemView {
     id: string;
     kind: PendingItemKind;
-    reference: string;
-    amount: number;
-    customerName: string | null;
-    accountNumber: string | null;
-    createdAt: string;
-    dueDate: string | null;
-    status: string;
-    description: string | null;
+    reference?: string;
+    amount?: number;
+    customerName?: string | null;
+    accountNumber?: string | null;
+    createdAt?: string;
+    dueDate?: string | null;
+    status?: string;
+    description?: string | null;
+    // Overdue loans specific fields
+    loanNumber?: string;
+    outstandingAmount?: number;
+    nextDueDate?: string | null;
+    daysOverdue?: number;
+    // Withdrawals specific fields
+    requestNumber?: string;
+    requestedOn?: string;
+    // Collections specific fields
+    mode?: string;
+    businessDate?: string;
+    agentCode?: string;
+    // Reconciliation specific fields
+    differenceType?: string;
+    createdOn?: string;
+    category?: string;
 }
 
 export interface DashboardPendingResult {

@@ -1,5 +1,8 @@
-export function formatCurrency(value: number) {
-    return `₹${value.toLocaleString('en-IN')}`;
+export function formatCurrency(value?: number | null) {
+    if (value === undefined || value === null || !Number.isFinite(Number(value))) {
+        return '₹0';
+    }
+    return `₹${Number(value).toLocaleString('en-IN')}`;
 }
 
 export function initials(value: string) {

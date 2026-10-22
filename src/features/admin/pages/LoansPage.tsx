@@ -2,6 +2,7 @@
 
 import { Pagination } from '../../../components/ui/Pagination';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, CalendarDays, CheckCircle2, Download, FileText, Filter, Loader2, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { loansRepository } from '../services/operations/loansApiRepository';
 import type { LoanInput as LoanRepoInput, LoanRepaymentInput as LoanRepoRepaymentInput, LoanProductView } from '../services/operations/loansApiRepository';
@@ -1219,10 +1220,15 @@ export function LoanStatementModal({
 }
 
 export function LoansPage() {
+    const [searchParams] = useSearchParams();
+    const queryStatus = searchParams.get('status');
     const [loanRows, setLoanRows] = useState<LoanRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState<string>('Active & Pipeline');
+    const [statusFilter, setStatusFilter] = useState<string>(() => {
+        if (queryStatus && queryStatus.toLowerCase() === 'overdue') return 'Overdue';
+        return 'Active & Pipeline';
+    });
     const [loanTypeFilter, setLoanTypeFilter] = useState<'All' | LoanRecord['loanType']>('All');
     const [page, setPage] = useState(1);
     const [modal, setModal] = useState<'account' | 'collection' | 'detail' | 'edit' | 'cancel' | 'purge' | null>(null);
@@ -1232,6 +1238,15 @@ export function LoansPage() {
     const pageSize = 4;
     const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600); };
     const close = () => { setModal(null); setSelected(undefined); };
+
+    useEffect(() => {
+        const currentParam = searchParams.get('status');
+        if (currentParam && currentParam.toLowerCase() === 'overdue') {
+            setStatusFilter('Overdue');
+            setPage(1);
+        }
+    }, [searchParams]);
+
     useEffect(() => {
         let active = true;
         loansRepository
@@ -1247,6 +1262,9 @@ export function LoansPage() {
         if (loanTypeFilter !== 'All' && row.loanType !== loanTypeFilter) return false;
         if (statusFilter === 'Active & Pipeline') return row.status !== 'Inactive';
         if (statusFilter === 'All') return true;
+        if (statusFilter === 'Overdue') {
+            return row.status === 'Overdue' || row.lifecycle === 'Overdue';
+        }
         return row.status === statusFilter;
     });
     const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
