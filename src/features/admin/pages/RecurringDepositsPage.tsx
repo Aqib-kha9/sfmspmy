@@ -148,6 +148,11 @@ export function nextRdDueDate(value: string, frequency: RDRecord['frequency']): 
     return addMonthsYmd(value, 1);
 }
 
+/** Derives standard RD maturity date with 2 banking buffer days (+2 days) */
+export function deriveRdMaturityDate(firstDue: string, termMonths: number): string {
+    return addDaysYmd(addMonthsYmd(firstDue, termMonths), 2);
+}
+
 /**
  * Builds the instalment grid from the first due date up to (exclusive) the
  * maturity date, capped at count instalments. Sunday due dates shift to the next
@@ -360,7 +365,7 @@ export function RDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
             setTenureMonths(String(term));
         }
         if (!Number.isFinite(term) || term <= 0) return;
-        const derivedMaturity = addMonthsYmd(derivedFirstDue, term);
+        const derivedMaturity = deriveRdMaturityDate(derivedFirstDue, term);
         const expectedCount = getExpectedInstallmentCount(frequency, term);
         setMaturityDate((current) => (current === derivedMaturity ? current : derivedMaturity));
         setInstallmentCount(String(expectedCount));

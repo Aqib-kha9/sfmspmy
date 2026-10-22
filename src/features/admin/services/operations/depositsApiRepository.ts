@@ -57,6 +57,8 @@ export type DepositRecord = {
     openedOn: string;
     /** Raw ISO opening date, kept so date-range filters compare real values. */
     openedOnIso?: string;
+    maturityDate?: string;
+    maturityDateIso?: string;
     lastEntry: string;
     status: Status;
     transactions: DepositTransaction[];
@@ -88,6 +90,7 @@ export type DepositInput = {
     productCode?: string;
     openingAmount: number;
     openedOn?: string;
+    maturityDate?: string;
     interestRate?: number;
     paymentMethod?: string;
     referenceNumber?: string;
@@ -103,6 +106,7 @@ export type DepositUpdateInput = {
     productCode?: string;
     /** `null` clears the account override so the product rate applies again. */
     interestRate?: number | null;
+    maturityDate?: string | null;
 };
 
 /**
@@ -223,6 +227,7 @@ type AccountView = {
     openedBy: string | null;
     openedByName: string | null;
     openedOn: string | null;
+    maturityDate?: string | null;
     approvedBy: string | null;
     approvedByName: string | null;
     approvedOn: string | null;
@@ -393,6 +398,8 @@ function toRecord(view: AccountView, transactions: DepositTransaction[], extras:
         balance,
         openedOn: formatDate(view.openedOn),
         openedOnIso: view.openedOn ?? undefined,
+        maturityDate: formatDate(view.maturityDate),
+        maturityDateIso: view.maturityDate ?? undefined,
         lastEntry: last ? last.date : formatDate(view.updatedAt),
         status: statusOf(view.status),
         transactions,
@@ -602,6 +609,7 @@ export class ApiDepositsRepository implements DepositsRepository {
             paymentMethod: paymentMethodValue(input.paymentMethod) ?? 'cash',
         };
         if (input.openedOn) body.openedOn = input.openedOn;
+        if (input.maturityDate) body.maturityDate = input.maturityDate;
         if (input.interestRate !== undefined) body.interestRate = input.interestRate.toFixed(4);
         if (input.referenceNumber) body.referenceNumber = input.referenceNumber;
         if (input.description) body.description = input.description;
@@ -627,6 +635,9 @@ export class ApiDepositsRepository implements DepositsRepository {
         }
         if (input.interestRate !== undefined) {
             body.interestRate = input.interestRate === null ? null : input.interestRate.toFixed(4);
+        }
+        if (input.maturityDate !== undefined) {
+            body.maturityDate = input.maturityDate;
         }
         if (Object.keys(body).length === 0) {
             throw new Error('Nothing to update — choose a scheme or change the interest rate first.');

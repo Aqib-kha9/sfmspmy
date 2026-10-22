@@ -12,6 +12,7 @@ import {
     LogOut,
     MapPin,
     Menu,
+    Monitor,
     Search,
     Settings,
     ShieldCheck,
@@ -125,6 +126,19 @@ function AdminLayout() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [displayScale, setDisplayScale] = useState<'normal' | 'large' | 'xlarge'>(() => {
+        const saved = localStorage.getItem('cfd_display_scale');
+        if (saved === 'large' || saved === 'xlarge') return saved;
+        // Default to large on high-resolution screens (>= 1440px wide) so it's instantly comfortable
+        if (typeof window !== 'undefined' && window.innerWidth >= 1440) return 'large';
+        return 'normal';
+    });
+
+    useEffect(() => {
+        document.documentElement.setAttribute('data-display-scale', displayScale);
+        localStorage.setItem('cfd_display_scale', displayScale);
+    }, [displayScale]);
+
     const location = useLocation();
     const { profile, can, logout } = useAuth();
     const [signingOut, setSigningOut] = useState(false);
@@ -178,7 +192,44 @@ function AdminLayout() {
                 <header className="topbar">
                     <button className="icon-button menu-toggle" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Menu size={21} /></button>
                     <div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div>
-                    <div className="topbar-actions"><div className="top-search" onClick={() => setSearchOpen(true)} style={{ cursor: 'pointer' }}><Search size={17} /><input placeholder="Search anything..." aria-label="Search" readOnly style={{ cursor: 'pointer' }} /><kbd>⌘ K</kbd></div><div className="profile"><div className="avatar">{initialsOf(profile?.fullName ?? '')}</div><div className="profile-copy"><strong>{profile?.fullName ?? 'Staff'}</strong><span>{profile?.roleLabel ?? 'Signed in'}</span></div><button className="icon-button" onClick={() => setChangingPassword(true)} aria-label="Change password" title="Change password"><KeyRound size={17} /></button><button className="icon-button" onClick={() => void signOut()} disabled={signingOut} aria-label="Sign out" title="Sign out"><LogOut size={17} /></button></div></div>
+                    <div className="topbar-actions">
+                        <div className="top-search" onClick={() => setSearchOpen(true)} style={{ cursor: 'pointer' }}><Search size={17} /><input placeholder="Search anything..." aria-label="Search" readOnly style={{ cursor: 'pointer' }} /><kbd>⌘ K</kbd></div>
+                        <div className="display-scale-control" title="Screen Zoom & Size (स्क्रीन आकार / झूम)">
+                            <span className="scale-label"><Monitor size={14} /> <span>Zoom</span></span>
+                            <div className="scale-buttons">
+                                <button
+                                    type="button"
+                                    className={`scale-btn ${displayScale === 'normal' ? 'active' : ''}`}
+                                    onClick={() => setDisplayScale('normal')}
+                                    title="Standard 100%"
+                                >
+                                    100%
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`scale-btn ${displayScale === 'large' ? 'active' : ''}`}
+                                    onClick={() => setDisplayScale('large')}
+                                    title="Large 115% - Recommended for laptops"
+                                >
+                                    115%
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`scale-btn ${displayScale === 'xlarge' ? 'active' : ''}`}
+                                    onClick={() => setDisplayScale('xlarge')}
+                                    title="Extra Large 125% - For big monitors"
+                                >
+                                    125%
+                                </button>
+                            </div>
+                        </div>
+                        <div className="profile">
+                            <div className="avatar">{initialsOf(profile?.fullName ?? '')}</div>
+                            <div className="profile-copy"><strong>{profile?.fullName ?? 'Staff'}</strong><span>{profile?.roleLabel ?? 'Signed in'}</span></div>
+                            <button className="icon-button" onClick={() => setChangingPassword(true)} aria-label="Change password" title="Change password"><KeyRound size={17} /></button>
+                            <button className="icon-button" onClick={() => void signOut()} disabled={signingOut} aria-label="Sign out" title="Sign out"><LogOut size={17} /></button>
+                        </div>
+                    </div>
                 </header>
                 <main className="content"><Routes><Route path="/dashboard" element={<DashboardPage />} /><Route path="/customers" element={<CustomersPage />} />{[...navigation, ...managementNavigation].filter((item) => item.path !== '/dashboard' && item.path !== '/customers').map(({ path }) => <Route key={path} path={path} element={<AdminPage path={path} />} />)}<Route path="*" element={<Navigate to="/dashboard" replace />} /></Routes></main>
             </section>

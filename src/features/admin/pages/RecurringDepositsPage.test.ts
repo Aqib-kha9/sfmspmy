@@ -7,6 +7,7 @@ import {
     RD_SLAB_TENURES,
     RD_SLAB_MATRIX,
     calculateRdMaturity,
+    deriveRdMaturityDate,
 } from './RecurringDepositsPage';
 
 describe('RD Installment Calculation & Scheduling Suite', () => {
@@ -80,5 +81,15 @@ describe('RD Installment Calculation & Scheduling Suite', () => {
     it('correctly handles Daily RD 180 installments', () => {
         const count = getExpectedInstallmentCount('Daily', 6);
         expect(count).toBe(180);
+    });
+
+    it('derives maturity date with 2 banking transaction buffer days (+2 days)', () => {
+        // First due: 2026-10-10, 12 months term -> 2027-10-10 + 2 days = 2027-10-12
+        const maturity = deriveRdMaturityDate('2026-10-10', 12);
+        expect(maturity).toBe('2027-10-12');
+
+        // First due: 2026-03-15, 24 months term -> 2028-03-15 + 2 days = 2028-03-17
+        const maturity2 = deriveRdMaturityDate('2026-03-15', 24);
+        expect(maturity2).toBe('2028-03-17');
     });
 });

@@ -24,6 +24,32 @@ export interface RecentTransactionView {
     customerName: string | null;
 }
 
+export interface BankProductBreakdown {
+    accountCount: number;
+    totalBalance: number;
+}
+
+export interface BankLoansBreakdown {
+    accountCount: number;
+    totalDisbursed: number;
+    totalCollected: number;
+    totalOutstanding: number;
+}
+
+export interface BankTotalsView {
+    totalDeposits: number;
+    totalLoansOutstanding: number;
+    netBankBalance: number;
+    totalAccountsCount: number;
+    breakdown: {
+        savings: BankProductBreakdown;
+        dailyDeposit: BankProductBreakdown;
+        recurringDeposit: BankProductBreakdown;
+        fixedDeposit: BankProductBreakdown;
+        loans: BankLoansBreakdown;
+    };
+}
+
 export interface DashboardOverviewView {
     date: string;
     collections: {
@@ -46,6 +72,7 @@ export interface DashboardOverviewView {
     };
     pendingCounts: Partial<Record<'collections' | 'withdrawals' | 'overdueLoans' | 'reconciliationDifferences' | 'complaints', number>>;
     recentTransactions: RecentTransactionView[];
+    bankTotals?: BankTotalsView;
 }
 
 export type PendingItemKind =

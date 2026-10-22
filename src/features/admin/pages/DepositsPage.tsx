@@ -61,6 +61,7 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
     const [productCode, setProductCode] = useState(record?.productCode ?? '');
     const [openingAmount, setOpeningAmount] = useState('');
     const [openedOn, setOpenedOn] = useState(new Date().toISOString().slice(0, 10));
+    const [maturityDate, setMaturityDate] = useState('');
     const [interestRate, setInterestRate] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('cash');
     const [referenceNumber, setReferenceNumber] = useState('');
@@ -119,6 +120,15 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
             .catch((reason: unknown) => setCustomerError(messageFor(reason, 'Unable to load the selected customer.')))
             .finally(() => setCustomerLoading(false));
     };
+    useEffect(() => {
+        if (productCode === 'DAILY-180' && openedOn) {
+            const d = new Date(openedOn);
+            d.setDate(d.getDate() + 180);
+            setMaturityDate(d.toISOString().slice(0, 10));
+            setInterestRate((curr) => curr || '4.00');
+        }
+    }, [productCode, openedOn]);
+
     const selectProduct = (code: string) => {
         setProductCode(code);
         const product = products.find((p) => p.code === code);
@@ -128,7 +138,16 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
             if (!Number.isFinite(val) || val <= 0) return String(product.minOpeningAmount);
             return current;
         });
-        setInterestRate((current) => current || String(product.interestRate));
+        if (code === 'DAILY-180') {
+            setInterestRate('4.00');
+            if (openedOn) {
+                const d = new Date(openedOn);
+                d.setDate(d.getDate() + 180);
+                setMaturityDate(d.toISOString().slice(0, 10));
+            }
+        } else {
+            setInterestRate((current) => current || String(product.interestRate));
+        }
     };
     const selectedProduct = products.find((product) => product.code === productCode);
     const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -140,7 +159,7 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
             if (mode === 'account') {
                 if (!customerId.trim() || !productCode.trim() || !openingAmount || Number(openingAmount) <= 0) { setError('Customer, scheme and opening deposit amount are required.'); return; }
                 if (selectedProduct && Number(openingAmount) < selectedProduct.minOpeningAmount) { setError(`Minimum opening amount for ${selectedProduct.name} is ${formatCurrency(selectedProduct.minOpeningAmount)}.`); return; }
-                await onSave({ customerId: customerId.trim(), productCode: productCode.trim(), openingAmount: Number(openingAmount), openedOn: openedOn || undefined, interestRate: interestRate ? Number(interestRate) : undefined, paymentMethod, referenceNumber: referenceNumber.trim() || undefined, description: description.trim() || undefined });
+                await onSave({ customerId: customerId.trim(), productCode: productCode.trim(), openingAmount: Number(openingAmount), openedOn: openedOn || undefined, maturityDate: maturityDate || undefined, interestRate: interestRate ? Number(interestRate) : undefined, paymentMethod, referenceNumber: referenceNumber.trim() || undefined, description: description.trim() || undefined });
                 return;
             }
             if (!record || !amount || Number(amount) <= 0) { setError('Amount is required.'); return; }
@@ -158,7 +177,8 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
                 <label><span>Product / scheme <Req /></span><select value={productCode} onChange={(event) => selectProduct(event.target.value)} aria-label="Select deposit scheme"><option value="">{products.length ? 'Select a scheme' : 'No active schemes configured'}</option>{products.map((product) => <option key={product.id} value={product.code}>{product.name} · {product.code} · {product.interestRate}%</option>)}</select></label>
                 <label><span>Opening deposit amount <Req /></span><input type="number" min="1" value={openingAmount} onChange={(event) => setOpeningAmount(event.target.value)} placeholder="5000" /></label>
                 <label><span>Opening date <Opt /></span><input type="date" value={openedOn} onChange={(event) => setOpenedOn(event.target.value)} /></label>
-                <label><span>Interest rate override (%) <Opt /></span><input type="number" min="0.01" max="25" step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} placeholder={selectedProduct ? String(selectedProduct.interestRate) : 'Product default'} /></label>
+                <label><span>Maturity date (मुदत समाप्ती) {productCode === 'DAILY-180' ? <Req /> : <Opt />}</span><input type="date" value={maturityDate} onChange={(event) => setMaturityDate(event.target.value)} />{productCode === 'DAILY-180' ? <small style={{ fontSize: '11px', color: 'var(--green)' }}>Auto-calculated (+180 days for DAILY-180)</small> : null}</label>
+                <label><span>Interest rate override (%) <Opt /></span><input type="number" min="0.01" max="25" step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} placeholder={selectedProduct ? String(selectedProduct.interestRate) : '4.00'} /></label>
                 <label><span>Payment method <Req /></span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>{depositPaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select></label>
                 <label><span>Instrument reference <Opt /></span><input value={referenceNumber} onChange={(event) => setReferenceNumber(event.target.value)} placeholder="Receipt / UTR / cheque number" /></label>
                 <label className="full-field"><span>Opening narration <Opt /></span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional note stored on the opening ledger entry" /></label>
@@ -184,6 +204,7 @@ export function DepositEditModal({ record, onClose, onSave }: { record: DepositR
     const [products, setProducts] = useState<DepositProduct[]>([]);
     const [productCode, setProductCode] = useState(record.productCode ?? '');
     const [interestRate, setInterestRate] = useState(record.interestRate !== undefined ? String(record.interestRate) : '');
+    const [maturityDate, setMaturityDate] = useState(record.maturityDateIso ?? '');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
     useEffect(() => {
@@ -201,18 +222,25 @@ export function DepositEditModal({ record, onClose, onSave }: { record: DepositR
             setError('');
             const code = productCode.trim();
             const rate = interestRate.trim();
+            const mat = maturityDate.trim();
             const codeChanged = code !== (record.productCode ?? '');
             const rateChanged = rate !== (record.interestRate !== undefined ? String(record.interestRate) : '');
-            if (!codeChanged && !rateChanged) { setError('Change the scheme or the interest rate before saving.'); return; }
-            await onSave({ productCode: codeChanged && code ? code : undefined, interestRate: rateChanged && rate ? Number(rate) : undefined });
+            const matChanged = mat !== (record.maturityDateIso ?? '');
+            if (!codeChanged && !rateChanged && !matChanged) { setError('Change the scheme, interest rate, or maturity date before saving.'); return; }
+            await onSave({
+                productCode: codeChanged && code ? code : undefined,
+                interestRate: rateChanged && rate ? Number(rate) : undefined,
+                maturityDate: matChanged ? (mat || null) : undefined,
+            });
         } finally { setSaving(false); }
     };
     return <Modal title={`Edit account · ${record.id}`} eyebrow="DEPOSIT WORKFLOW" onClose={onClose} wide>
         <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
             <FormLegend />
-            <p className="form-note full-field">Only the booked scheme and the account-level interest rate can change — the backend rejects any other account field. Customer, branch and product limits stay owned by their own records.</p>
+            <p className="form-note full-field">Only the booked scheme, account-level interest rate and maturity date can change — the backend rejects any other account field.</p>
             <label><span>Product / scheme <Opt /></span><select value={productCode} onChange={(event) => setProductCode(event.target.value)} aria-label="Select deposit scheme"><option value={record.productCode ?? ''}>{record.productCode ? `Keep current · ${record.productCode}` : 'Select a scheme'}</option>{products.filter((product) => product.code !== record.productCode).map((product) => <option key={product.id} value={product.code}>{product.name} · {product.code} · {product.interestRate}%</option>)}</select></label>
             <label><span>Interest rate override (%) <Opt /></span><input type="number" min="0.01" max="25" step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} placeholder="Product default" /></label>
+            <label><span>Maturity date (मुदत समाप्ती) <Opt /></span><input type="date" value={maturityDate} onChange={(event) => setMaturityDate(event.target.value)} /></label>
             {error && <p className="form-error full-field">{error}</p>}
             <div className="admin-form-actions full-field">
                 <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
@@ -538,6 +566,7 @@ export function DepositDetail({
                 <div><span>Scheme</span><strong>{record.productName ?? record.productCode ?? 'Not captured'}{record.productName && record.productCode ? ` · ${record.productCode}` : ''}</strong></div>
                 <div><span>Branch</span><strong>{record.branch ?? 'Not captured'}</strong></div>
                 <div><span>Interest</span><strong>{interest || 'Not captured'}</strong></div>
+                <div><span>Maturity date (मुदत समाप्ती)</span><strong>{record.maturityDate || 'Not applicable / Open'}</strong></div>
                 <div><span>Minimum balance</span><strong>{record.minimumBalance !== undefined ? formatCurrency(record.minimumBalance) : 'Not captured'}</strong></div>
                 <div><span>Maximum balance</span><strong>{record.maxBalance !== undefined ? formatCurrency(record.maxBalance) : 'No cap'}</strong></div>
                 <div><span>Opened by</span><strong>{record.openedBy ?? 'Not captured'}</strong></div>
@@ -834,7 +863,11 @@ export function DepositsPage() {
                             <small>{row.id} · {row.customerPhone}</small>
                         </td>
                         <td className="table-amount">{formatCurrency(row.balance)}</td>
-                        <td className="table-muted">Opened {row.openedOn}<br />Last entry {row.lastEntry}</td>
+                        <td className="table-muted">
+                            Opened {row.openedOn}
+                            {row.maturityDate ? <><br />Matures {row.maturityDate}</> : null}
+                            <br />Last entry {row.lastEntry}
+                        </td>
                         <td>
                             <StatusPill status={row.status} />
                         </td>

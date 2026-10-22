@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ArrowUpRight,
+    Building2,
     CalendarDays,
     ChevronRight,
     CircleCheck,
     Clock3,
+    Coins,
+    CreditCard,
+    Landmark,
     MoreHorizontal,
+    PiggyBank,
     RefreshCw,
+    Scale,
     Search,
     TrendingUp,
     Users,
@@ -224,6 +230,141 @@ export function DashboardPage() {
         </div>
 
         {error && <div className="panel" style={{ marginBottom: '1rem' }}><p className="empty-state">Could not refresh the dashboard: {error}. <button className="text-button" onClick={() => void load()}>Retry</button></p></div>}
+
+        {overview?.bankTotals && (
+            <section className="bank-position-section">
+                <div className="bank-hero-card">
+                    <div className="bank-hero-main">
+                        <div className="bank-hero-label">
+                            <Landmark size={18} />
+                            <span>बँकेची एकूण शिल्लक बाकी · Net Treasury Liquidity</span>
+                        </div>
+                        <div className="bank-hero-value">
+                            {formatCurrency(overview.bankTotals.netBankBalance)}
+                        </div>
+                        <div className="bank-hero-sub">
+                            ठेवी आणि कर्ज समायोजनानंतर बँकेची एकूण शिल्लक रक्कम (As of {formatDateHeading(overview.date)})
+                        </div>
+                    </div>
+                    <div className="bank-hero-stats">
+                        <div className="bank-hero-stat-item">
+                            <div className="bank-hero-stat-label">एकूण ठेवी · Total Deposits</div>
+                            <div className="bank-hero-stat-value">{formatCurrency(overview.bankTotals.totalDeposits)}</div>
+                        </div>
+                        <div className="bank-hero-stat-item">
+                            <div className="bank-hero-stat-label">एकूण कर्ज येणे · Active Loans</div>
+                            <div className="bank-hero-stat-value">{formatCurrency(overview.bankTotals.totalLoansOutstanding)}</div>
+                        </div>
+                        <div className="bank-hero-stat-item">
+                            <div className="bank-hero-stat-label">एकूण कार्यरत खाती · Total Accounts</div>
+                            <div className="bank-hero-stat-value">{overview.bankTotals.totalAccountsCount.toLocaleString()}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bank-products-grid">
+                    <div className="bank-product-card" onClick={() => navigate('/deposits')}>
+                        <div className="bank-product-header">
+                            <div>
+                                <div className="bank-product-title">Daily Deposit 180</div>
+                                <div className="bank-product-marathi">दैनिक ठेव (180 दिवस)</div>
+                            </div>
+                            <div className="metric-icon orange" style={{ width: 32, height: 32, margin: 0 }}>
+                                <Coins size={16} />
+                            </div>
+                        </div>
+                        <div>
+                            <div className="bank-product-balance">
+                                {formatCurrency(overview.bankTotals.breakdown.dailyDeposit.totalBalance)}
+                            </div>
+                            <div className="bank-product-count">
+                                {overview.bankTotals.breakdown.dailyDeposit.accountCount} सक्रिय खाती (Accounts)
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bank-product-card" onClick={() => navigate('/deposits')}>
+                        <div className="bank-product-header">
+                            <div>
+                                <div className="bank-product-title">Savings Bachat</div>
+                                <div className="bank-product-marathi">बचत ठेव खाती</div>
+                            </div>
+                            <div className="metric-icon green" style={{ width: 32, height: 32, margin: 0 }}>
+                                <PiggyBank size={16} />
+                            </div>
+                        </div>
+                        <div>
+                            <div className="bank-product-balance">
+                                {formatCurrency(overview.bankTotals.breakdown.savings.totalBalance)}
+                            </div>
+                            <div className="bank-product-count">
+                                {overview.bankTotals.breakdown.savings.accountCount} सक्रिय खाती (Accounts)
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bank-product-card" onClick={() => navigate('/recurring-deposits')}>
+                        <div className="bank-product-header">
+                            <div>
+                                <div className="bank-product-title">Recurring Deposit</div>
+                                <div className="bank-product-marathi">आवर्त ठेव (RD)</div>
+                            </div>
+                            <div className="metric-icon blue" style={{ width: 32, height: 32, margin: 0 }}>
+                                <CreditCard size={16} />
+                            </div>
+                        </div>
+                        <div>
+                            <div className="bank-product-balance">
+                                {formatCurrency(overview.bankTotals.breakdown.recurringDeposit.totalBalance)}
+                            </div>
+                            <div className="bank-product-count">
+                                {overview.bankTotals.breakdown.recurringDeposit.accountCount} सक्रिय खाती (Accounts)
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bank-product-card" onClick={() => navigate('/fixed-deposits')}>
+                        <div className="bank-product-header">
+                            <div>
+                                <div className="bank-product-title">Fixed Deposit</div>
+                                <div className="bank-product-marathi">मुदत ठेव (FD)</div>
+                            </div>
+                            <div className="metric-icon purple" style={{ width: 32, height: 32, margin: 0 }}>
+                                <Building2 size={16} />
+                            </div>
+                        </div>
+                        <div>
+                            <div className="bank-product-balance">
+                                {formatCurrency(overview.bankTotals.breakdown.fixedDeposit.totalBalance)}
+                            </div>
+                            <div className="bank-product-count">
+                                {overview.bankTotals.breakdown.fixedDeposit.accountCount} सक्रिय खाती (Accounts)
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bank-product-card" onClick={() => navigate('/loans')}>
+                        <div className="bank-product-header">
+                            <div>
+                                <div className="bank-product-title">Loans & Advances</div>
+                                <div className="bank-product-marathi">कर्ज खाती (थकबाकी)</div>
+                            </div>
+                            <div className="metric-icon orange" style={{ width: 32, height: 32, margin: 0 }}>
+                                <Scale size={16} />
+                            </div>
+                        </div>
+                        <div>
+                            <div className="bank-product-balance">
+                                {formatCurrency(overview.bankTotals.breakdown.loans.totalOutstanding)}
+                            </div>
+                            <div className="bank-product-count">
+                                {overview.bankTotals.breakdown.loans.accountCount} खाती · वितरित {compactLakh(overview.bankTotals.breakdown.loans.totalDisbursed)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        )}
 
         <section className="metric-grid">{metrics.map(({ label, value, change, note, icon: Icon, tone, action }) => <article className="metric-card" key={label}><div className={`metric-icon ${tone}`}><Icon size={20} /></div><div className="metric-label">{label}<button className="metric-menu-trigger" onClick={() => setMetricMenu(metricMenu === label ? null : label)} aria-label={`Open ${label} options`}><MoreHorizontal size={18} /></button>{metricMenu === label && <div className="metric-menu"><button onClick={() => { setMetricMenu(null); action(); }}>Open {label.toLowerCase()}</button><button onClick={() => { setMetricMenu(null); void load(); }}>Refresh data</button></div>}</div><div className="metric-value">{value}</div><div className="metric-change"><span><ArrowUpRight size={14} />{change}</span><small>{note}</small></div></article>)}</section>
 
