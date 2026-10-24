@@ -83,13 +83,33 @@ describe('RD Installment Calculation & Scheduling Suite', () => {
         expect(count).toBe(180);
     });
 
-    it('derives maturity date with 2 banking transaction buffer days (+2 days)', () => {
-        // First due: 2026-10-10, 12 months term -> 2027-10-10 + 2 days = 2027-10-12
-        const maturity = deriveRdMaturityDate('2026-10-10', 12);
-        expect(maturity).toBe('2027-10-12');
+    it('derives maturity date matching the product tenure from the opening date (including backdates)', () => {
+        // Opened today: 2026-10-24, 12 months term -> 2027-10-24 (strictly fixed to product tenure)
+        const maturityToday = deriveRdMaturityDate('2026-10-24', 12);
+        expect(maturityToday).toBe('2027-10-24');
 
-        // First due: 2026-03-15, 24 months term -> 2028-03-15 + 2 days = 2028-03-17
-        const maturity2 = deriveRdMaturityDate('2026-03-15', 24);
-        expect(maturity2).toBe('2028-03-17');
+        // Backdated: 2025-10-24, 12 months term -> 2026-10-24
+        const maturityBackdateYear = deriveRdMaturityDate('2025-10-24', 12);
+        expect(maturityBackdateYear).toBe('2026-10-24');
+
+        // Backdated mid-month: 2026-05-15, 12 months term -> 2027-05-15
+        const maturityBackdateMid = deriveRdMaturityDate('2026-05-15', 12);
+        expect(maturityBackdateMid).toBe('2027-05-15');
+
+        // Opened: 2026-03-15, 24 months term -> 2028-03-15
+        const maturity24 = deriveRdMaturityDate('2026-03-15', 24);
+        expect(maturity24).toBe('2028-03-15');
+
+        // Daily RD: 2026-10-24 + 180 days -> 2027-04-22
+        const dailyMaturity = deriveRdMaturityDate('2026-10-24', 6, true);
+        expect(dailyMaturity).toBe('2027-04-22');
+    });
+
+    it('schedules all 12 installments when opening on 24th with first due on 10th of next month', () => {
+        // Opened: 2026-10-24, first installment: 2026-11-10, maturity: 2027-10-24 (12 months)
+        const dates = rdInstalmentDates('2026-11-10', '2027-10-24', 'Monthly', 12);
+        expect(dates.length).toBe(12);
+        expect(dates[0]).toBe('2026-11-10');
+        expect(dates[dates.length - 1]).toBe('2027-10-11'); // 10th Oct is Sunday, shifted to 11th
     });
 });
