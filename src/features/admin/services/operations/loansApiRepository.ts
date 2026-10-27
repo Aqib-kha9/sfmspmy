@@ -78,7 +78,7 @@ export type LoanInstallment = {
     paidMethod?: string;
     agent: string;
     reference?: string;
-    status: 'Paid' | 'Pending' | 'Overdue';
+    status: 'Paid' | 'Pending' | 'Overdue' | 'Partial';
 };
 
 export type LoanLifecycle = 'Application' | 'Underwriting' | 'Approved' | 'Disbursed' | 'Active' | 'Overdue' | 'Rescheduled' | 'Settled' | 'Written off' | 'Completed';
@@ -274,7 +274,7 @@ const INTEREST_FROM_API: Record<ApiLoanInterestMethod, LoanInterestMethod> = {
 
 const INSTALMENT_FROM_API: Record<LoanInstalmentStatus, LoanInstallment['status']> = {
     due: 'Pending',
-    partial: 'Pending',
+    partial: 'Partial',
     paid: 'Paid',
     waived: 'Paid',
     missed: 'Overdue',
@@ -345,7 +345,7 @@ function toInstalments(items: LoanInstalmentView[]): LoanInstallment[] {
         return {
             id: `LNI-${view.instalmentNumber}`,
             dueDate: formatDate(view.dueDate),
-            paidDate: view.paidOn ? formatDate(view.paidOn) : undefined,
+            paidDate: (Number(view.paidAmount) > 0 && view.paidOn) ? formatDate(view.paidOn) : undefined,
             amount: Number(view.expectedAmount),
             principal: Number(view.principalComponent),
             interest: Number(view.interestComponent),

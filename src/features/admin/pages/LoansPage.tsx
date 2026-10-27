@@ -34,7 +34,7 @@ export type LoanInstallment = {
     paidMethod?: string;
     agent: string;
     reference?: string;
-    status: 'Paid' | 'Pending' | 'Overdue';
+    status: 'Paid' | 'Pending' | 'Overdue' | 'Partial';
 };
 
 export type LoanLifecycle = 'Application' | 'Underwriting' | 'Approved' | 'Disbursed' | 'Active' | 'Overdue' | 'Rescheduled' | 'Settled' | 'Written off' | 'Completed';
@@ -1144,52 +1144,84 @@ export function LoanDetail({
                     </div>
                     {record.installments.length ? (
                         <div className="customer-transaction-list">
-                            {record.installments.map((item) => (
-                                <div className="customer-transaction-row" key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                                    <div style={{ flex: 1 }}>
-                                        <strong>{item.id} · {item.status}</strong>
-                                        <span>Due {item.dueDate}{item.paidDate ? ` · Paid ${item.paidDate}` : ''}</span>
+                            {record.installments.map((item) => {
+                                const isPartial = item.status === 'Partial';
+                                const isPaid = item.status === 'Paid';
+                                const isOverdue = item.status === 'Overdue';
+                                const remainingOnEmi = Math.max(0, item.amount - (item.paidAmount ?? 0));
+                                return (
+                                    <div className="customer-transaction-row" key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                                <strong>{item.id}</strong>
+                                                <span style={{
+                                                    fontSize: '11px',
+                                                    padding: '2px 7px',
+                                                    borderRadius: '4px',
+                                                    fontWeight: 600,
+                                                    background: isPaid ? '#dcfce7' : isPartial ? '#fef3c7' : isOverdue ? '#fee2e2' : '#f1f5f9',
+                                                    color: isPaid ? '#15803d' : isPartial ? '#b45309' : isOverdue ? '#b91c1c' : '#475569',
+                                                }}>
+                                                    {isPaid ? 'Paid' : isPartial ? `Partial (Paid ₹${(item.paidAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })})` : isOverdue ? 'Overdue' : 'Scheduled'}
+                                                </span>
+                                            </div>
+                                            <span style={{ fontSize: '12px', color: 'var(--muted, #64748b)' }}>
+                                                Due {item.dueDate}
+                                                {item.paidDate ? ` · Paid ${item.paidDate}` : ''}
+                                                {isPartial ? ` · Remaining on EMI: ₹${remainingOnEmi.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : ''}
+                                            </span>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <b>₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</b>
+                                            <small>
+                                                {isPartial ? (
+                                                    <>Paid: ₹{(item.paidAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} · Remaining: ₹{remainingOnEmi.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</>
+                                                ) : (
+                                                    <>Principal ₹{item.principal.toLocaleString('en-IN', { minimumFractionDigits: 2 })} · Interest ₹{item.interest.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</>
+                                                )}
+                                                {item.penalty ? ` · Penalty ₹${item.penalty}` : ''}
+                                                {item.fees ? ` · Fees ₹${item.fees}` : ''}
+                                                {item.paidMethod ? ` · ${item.paidMethod}` : ''}
+                                                {item.reference ? ` · Ref: ${item.reference}` : ''}
+                                            </small>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <StatusPill status={isPaid ? 'Completed' : isOverdue ? 'Overdue' : isPartial ? 'Review' : 'Pending'} />
+                                            {(isPaid || isPartial) ? (
+                                                <button
+                                                    type="button"
+                                                    className="secondary-button"
+                                                    style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onViewReceipt({
+                                                            receiptNumber: item.reference || `LN-RCT-${item.id}`,
+                                                            date: item.paidDate || item.dueDate,
+                                                            time: '12:00 PM',
+                                                            customerName: record.customerName,
+                                                            customerId: record.customerId,
+                                                            customerPhone: record.customerPhone,
+                                                            accountNumber: record.id,
+                                                            productName: `${record.loanType}${record.productCode ? ` (${record.productCode})` : ''}`,
+                                                            productType: 'Loan',
+                                                            amount: item.paidAmount || item.amount,
+                                                            paymentMethod: item.paidMethod || 'Cash',
+                                                            agentOrCashier: item.agent || 'Branch Counter',
+                                                            reference: item.reference,
+                                                            outstandingAfter: record.outstandingAmount,
+                                                            narration: `Repayment for installment #${item.id} (Paid: ₹${item.paidAmount || item.amount})`,
+                                                            branch: record.branchName,
+                                                        });
+                                                    }}
+                                                    title="View / print official loan repayment receipt"
+                                                >
+                                                    <FileText size={13} /> Receipt
+                                                </button>
+                                            ) : null}
+                                        </div>
                                     </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <b>₹{item.amount.toLocaleString('en-IN')}</b>
-                                        <small>Principal ₹{item.principal.toLocaleString('en-IN')} · Interest ₹{item.interest.toLocaleString('en-IN')}{item.penalty ? ` · Penalty ₹${item.penalty}` : ''}{item.fees ? ` · Fees ₹${item.fees}` : ''}{item.paidMethod ? ` · ${item.paidMethod}` : ''}{item.reference ? ` · Ref: ${item.reference}` : ''}</small>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <StatusPill status={item.status === 'Paid' ? 'Completed' : item.status === 'Overdue' ? 'Overdue' : 'Pending'} />
-                                        {item.status === 'Paid' ? (
-                                            <button
-                                                type="button"
-                                                className="secondary-button"
-                                                style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onViewReceipt({
-                                                        receiptNumber: item.reference || `LN-RCT-${item.id}`,
-                                                        date: item.paidDate || item.dueDate,
-                                                        time: '12:00 PM',
-                                                        customerName: record.customerName,
-                                                        customerId: record.customerId,
-                                                        customerPhone: record.customerPhone,
-                                                        accountNumber: record.id,
-                                                        productName: `${record.loanType}${record.productCode ? ` (${record.productCode})` : ''}`,
-                                                        productType: 'Loan',
-                                                        amount: item.paidAmount || item.amount,
-                                                        paymentMethod: item.paidMethod || 'Cash',
-                                                        agentOrCashier: item.agent || 'Branch Counter',
-                                                        reference: item.reference,
-                                                        outstandingAfter: record.outstandingAmount,
-                                                        narration: `Repayment for installment #${item.id} (Principal: ₹${item.principal}, Interest: ₹${item.interest})`,
-                                                        branch: record.branchName,
-                                                    });
-                                                }}
-                                                title="View / print official loan repayment receipt"
-                                            >
-                                                <FileText size={13} /> Receipt
-                                            </button>
-                                        ) : null}
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     ) : (
                         <p className="empty-state">No schedule entries recorded on the backend yet.</p>
