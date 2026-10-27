@@ -237,13 +237,7 @@ function toCreatePayload(input: CustomerInput, branchId: string): CreateCustomer
         branchId,
         addresses,
     };
-    if (input.membershipCategory) {
-        payload.membershipCategory = input.membershipCategory;
-    } else if (input.initialAccountType === 'Daily') {
-        payload.membershipCategory = 'Daily';
-    } else {
-        payload.membershipCategory = 'Savings';
-    }
+    payload.membershipCategory = input.membershipCategory || 'Savings';
     if (identityDocuments.length > 0) {
         payload.identityDocuments = identityDocuments;
     }
@@ -543,51 +537,7 @@ export class ApiCustomerRepository implements CustomerRepository {
                 }
             }
 
-            // Auto-create initial account(s) based on selected scheme
-            const accountType = input.initialAccountType ?? 'Savings';
-            if (accountType !== 'None') {
-                try {
-                    const productsRes = await apiClient.request<{ items: Array<{ id: string; code: string; minOpeningAmount: string }> }>('/deposits/products');
-                    const savingsProduct = productsRes.items?.find((p) => p.code === 'SAV-STD') || productsRes.items?.find((p) => p.code.startsWith('SAV'));
-                    const dailyProduct = productsRes.items?.find((p) => p.code === 'DAILY-180') || productsRes.items?.find((p) => p.code === 'SAV-DLY');
 
-                    const toOpen: Array<{ product: typeof savingsProduct; amount: string }> = [];
-                    if ((accountType === 'Savings' || accountType === 'Both') && savingsProduct) {
-                        const amt = Number(input.initialOpeningAmount) > 0 ? Number(input.initialOpeningAmount).toFixed(2) : (Number(savingsProduct.minOpeningAmount) || 100).toFixed(2);
-                        toOpen.push({ product: savingsProduct, amount: amt });
-                    }
-                    if ((accountType === 'Daily' || accountType === 'Both') && dailyProduct) {
-                        const amt = (Number(dailyProduct.minOpeningAmount) || 50).toFixed(2);
-                        toOpen.push({ product: dailyProduct, amount: amt });
-                    }
-
-                    for (const item of toOpen) {
-                        if (!item.product) continue;
-                        try {
-                            const acc = await apiClient.request<{ id: string }>('/deposits/accounts', {
-                                method: 'POST',
-                                body: {
-                                    customerId: created.id,
-                                    productId: item.product.id,
-                                    branchId,
-                                    openingAmount: item.amount,
-                                    paymentMethod: 'cash',
-                                },
-                            });
-                            if (acc?.id) {
-                                await apiClient.request(`/deposits/accounts/${acc.id}/approve`, {
-                                    method: 'POST',
-                                    body: { reason: 'Initial account approved upon registration' },
-                                }).catch(() => {});
-                            }
-                        } catch (openErr) {
-                            console.warn('Unable to auto-open initial account:', openErr);
-                        }
-                    }
-                } catch (prodErr) {
-                    console.warn('Unable to fetch products for initial account:', prodErr);
-                }
-            }
 
             const finalRefresh = await apiClient.request<CustomerDetailView>(`/customers/${created.id}`);
             return toCustomer(finalRefresh, finalRefresh);
