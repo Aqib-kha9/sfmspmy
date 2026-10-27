@@ -19,6 +19,7 @@ import {
     UserRound,
     UsersRound,
     WalletCards,
+    PiggyBank,
     X,
     ChevronsLeft,
     ChevronsRight,
@@ -39,7 +40,8 @@ type NavItem = { label: string; icon: typeof LayoutDashboard; path: string; perm
 const navigation: NavItem[] = [
     { label: 'Overview', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'Customers', icon: UsersRound, path: '/customers', permission: 'customers.read' },
-    { label: 'Deposits', icon: WalletCards, path: '/deposits', permission: 'deposits.read' },
+    { label: 'Savings accounts', icon: PiggyBank, path: '/savings', permission: 'deposits.read' },
+    { label: 'Daily deposits', icon: WalletCards, path: '/deposits', permission: 'deposits.read' },
     { label: 'Recurring deposits', icon: WalletCards, path: '/recurring-deposits', permission: 'deposits.read' },
     { label: 'Fixed deposits', icon: WalletCards, path: '/fixed-deposits', permission: 'deposits.read' },
     { label: 'Loans', icon: CircleDollarSign, path: '/loans', permission: 'loans.read' },

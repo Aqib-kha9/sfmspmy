@@ -2,7 +2,7 @@
 
 import { Pagination } from '../../../components/ui/Pagination';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, LockKeyhole, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CalendarDays, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, LockKeyhole, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { depositsRepository } from '../services/operations/depositsApiRepository';
 import type { DepositInput as DepositRepoInput, DepositTransactionInput as DepositRepoTransactionInput, DepositRecord as DepositRecordView, DepositTransaction as DepositTransactionView, DepositStatement, DepositProduct, DepositUpdateInput, DepositStatementQuery } from '../services/operations/depositsApiRepository';
 import { customerRepository } from '../../customers/services/customerApiRepository';
@@ -50,7 +50,7 @@ export function depositStatementPeriod(from: string, to: string): string {
     return `${from} to ${to}`;
 }
 
-export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account' | 'transaction'; record?: DepositRecord; onClose: () => void; onSave: (input: DepositInput | DepositTransactionInput) => Promise<void> }) {
+export function DepositModal({ mode, record, accountKind = 'all', onClose, onSave }: { mode: 'account' | 'transaction'; record?: DepositRecord; accountKind?: 'savings' | 'daily' | 'all'; onClose: () => void; onSave: (input: DepositInput | DepositTransactionInput) => Promise<void> }) {
     const [customerId, setCustomerId] = useState(record?.customerId ?? '');
     const [customers, setCustomers] = useState<CustomerOption[]>([]);
     const [customerQuery, setCustomerQuery] = useState('');
@@ -73,26 +73,33 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
     const [narration, setNarration] = useState('');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
-    // Real scheme catalogue so the operator can only book a product the backend accepts.
+    // Real scheme catalogue filtered by accountKind (savings vs daily)
     useEffect(() => {
         if (mode !== 'account') return undefined;
         let active = true;
         depositsRepository.products()
             .then((rows) => {
                 if (active) {
-                    setProducts(rows);
-                    if (!productCode && rows.length > 0) {
-                        const std = rows.find((p) => p.code === 'SAV-STD') || rows[0];
-                        if (std) {
-                            setProductCode(std.code);
-                            setOpeningAmount((curr) => curr || String(std.minOpeningAmount || 100));
+                    const filtered = accountKind === 'savings'
+                        ? rows.filter((p) => p.code !== 'DAILY-180')
+                        : accountKind === 'daily'
+                            ? rows.filter((p) => p.code === 'DAILY-180')
+                            : rows;
+                    setProducts(filtered);
+                    if (!productCode && filtered.length > 0) {
+                        const defaultProduct = accountKind === 'daily'
+                            ? (filtered.find((p) => p.code === 'DAILY-180') || filtered[0])
+                            : (filtered.find((p) => p.code === 'SAV-STD') || filtered[0]);
+                        if (defaultProduct) {
+                            setProductCode(defaultProduct.code);
+                            setOpeningAmount((curr) => curr || String(defaultProduct.minOpeningAmount || (accountKind === 'daily' ? 50 : 100)));
                         }
                     }
                 }
             })
             .catch(() => { if (active) setProducts([]); });
         return () => { active = false; };
-    }, [mode]);
+    }, [mode, accountKind]);
     // Loads the selectable customer list and re-queries the backend as the operator
     // types, so the dropdown stays accurate for large registries. Each option's
     // value is the raw customer UUID that the deposit API expects.
@@ -166,7 +173,13 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
             await onSave({ type: transactionType, amount: Number(amount), date: date || undefined, reference: reference.trim() || undefined, paymentMethod, narration: narration.trim() || undefined });
         } finally { setSaving(false); }
     };
-    return <Modal title={mode === 'account' ? 'Open deposit account' : `Record entry · ${record?.id ?? ''}`} eyebrow="DEPOSIT WORKFLOW" onClose={onClose} wide>
+    const modalTitle = mode === 'account'
+        ? (accountKind === 'savings' ? 'Open savings account (बचत खाते)' : accountKind === 'daily' ? 'Open daily deposit account (दैनिक ठेव)' : 'Open deposit account')
+        : `Record entry · ${record?.id ?? ''}`;
+    const modalEyebrow = mode === 'account'
+        ? (accountKind === 'savings' ? 'SAVINGS WORKFLOW' : accountKind === 'daily' ? 'DAILY DEPOSIT WORKFLOW' : 'DEPOSIT WORKFLOW')
+        : 'DEPOSIT WORKFLOW';
+    return <Modal title={modalTitle} eyebrow={modalEyebrow} onClose={onClose} wide>
         <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
             <FormLegend />
             {mode === 'account' ? <>
@@ -194,7 +207,10 @@ export function DepositModal({ mode, record, onClose, onSave }: { mode: 'account
             {error && <p className="form-error full-field">{error}</p>}
             <div className="admin-form-actions full-field">
                 <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
-                <button type="submit" className="primary-button" disabled={saving}>{saving ? <Loader2 size={15} className="spin" /> : null}{saving ? 'Saving…' : (mode === 'account' ? 'Create deposit account' : 'Save transaction')}</button>
+                <button type="submit" className="primary-button" disabled={saving}>
+                    {saving ? <Loader2 size={15} className="spin" /> : null}
+                    {saving ? 'Saving…' : (mode === 'account' ? (accountKind === 'savings' ? 'Create savings account' : accountKind === 'daily' ? 'Create daily deposit account' : 'Create deposit account') : 'Save transaction')}
+                </button>
             </div>
         </form>
     </Modal>;
@@ -547,11 +563,23 @@ export function DepositDetail({
 
     return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
         <section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`Deposit ${record.id}`}>
-            <div className="admin-modal-header">
-                <div>
-                    <div className="eyebrow">DEPOSIT ACCOUNT / {record.id}</div>
-                    <h2>{record.customerName}</h2>
-                    <p>{record.accountType} · {record.customerId} · {record.customerPhone}</p>
+            <div className="admin-modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={onClose}
+                        aria-label="Back / Return"
+                        title="Go back / close"
+                        style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px', borderRadius: '6px' }}
+                    >
+                        <ArrowLeft size={15} /> <span>Back</span>
+                    </button>
+                    <div>
+                        <div className="eyebrow">{record.productCode === 'DAILY-180' || record.id.startsWith('DDA') ? 'DAILY DEPOSIT ACCOUNT' : 'SAVINGS ACCOUNT'} / {record.id}</div>
+                        <h2>{record.customerName}</h2>
+                        <p>{record.accountType} · {record.customerId} · {record.customerPhone}</p>
+                    </div>
                 </div>
                 <button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button>
             </div>
@@ -646,7 +674,7 @@ export function DepositDetail({
     </div>;
 }
 
-export function DepositsPage() {
+export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' | 'daily' | 'all' } = {}) {
     const [depositRows, setDepositRows] = useState<DepositRecord[]>([]);
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<'All' | Status>('All');
@@ -690,13 +718,25 @@ export function DepositsPage() {
         if (rangeTo && opened > rangeTo) return false;
         return true;
     };
-    const filteredRows = depositRows.filter((row) => withinRange(row) && `${row.id} ${row.customerId} ${row.customerName} ${row.customerPhone} ${row.accountType} ${row.productCode ?? ''} ${row.branch ?? ''} ${row.transactions.map((transaction) => `${transaction.id} ${transaction.agent} ${transaction.reference}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()) && (statusFilter === 'All' || row.status === statusFilter));
+
+    const isDaily = (row: DepositRecord) =>
+        row.productCode === 'DAILY-180' || row.id.startsWith('DDA');
+
+    const matchesKind = (row: DepositRecord) => {
+        if (accountKind === 'savings') return !isDaily(row);
+        if (accountKind === 'daily') return isDaily(row);
+        return true;
+    };
+
+    const kindRows = useMemo(() => depositRows.filter(matchesKind), [depositRows, accountKind]);
+    const filteredRows = kindRows.filter((row) => withinRange(row) && `${row.id} ${row.customerId} ${row.customerName} ${row.customerPhone} ${row.accountType} ${row.productCode ?? ''} ${row.branch ?? ''} ${row.transactions.map((transaction) => `${transaction.id} ${transaction.agent} ${transaction.reference}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()) && (statusFilter === 'All' || row.status === statusFilter));
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
     const currentPage = Math.min(page, totalPages);
     const visibleRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-    const totalBalance = depositRows.reduce((total, row) => total + row.balance, 0);
-    const entriesToday = depositRows.flatMap((row) => row.transactions).filter((transaction) => transaction.date === today).length;
-    const reviewCount = depositRows.filter((row) => row.status === 'Review' || row.status === 'Pending').length;
+    const totalBalance = kindRows.reduce((total, row) => total + row.balance, 0);
+    const entriesToday = kindRows.flatMap((row) => row.transactions).filter((transaction) => transaction.date === today).length;
+    const reviewCount = kindRows.filter((row) => row.status === 'Review' || row.status === 'Pending').length;
+    const activeCount = kindRows.filter((row) => row.status === 'Active').length;
     // Exports exactly the backend-sourced rows currently on screen — no placeholder payload.
     const exportCsv = () => {
         if (exporting) return;
@@ -814,16 +854,29 @@ export function DepositsPage() {
             notify(messageFor(reasonErr, 'Unable to reverse deposit transaction.'));
         }
     };
+    const isSavingsOnly = accountKind === 'savings';
+    const isDailyOnly = accountKind === 'daily';
+    const pageEyebrow = isSavingsOnly ? 'OPERATIONS / SAVINGS' : isDailyOnly ? 'OPERATIONS / DAILY DEPOSITS' : 'OPERATIONS / DEPOSITS';
+    const pageTitle = isSavingsOnly ? 'Savings accounts' : isDailyOnly ? 'Daily deposits' : 'Deposits';
+    const pageSubtitle = isSavingsOnly
+        ? 'Manage member savings (बचत खाती), balances, passbooks and ledger entries.'
+        : isDailyOnly
+            ? 'Manage daily deposit (दैनिक ठेव - DD) collections, 180-day accounts and statements.'
+            : 'Manage deposit accounts, customer-linked entries, balances and statements.';
+    const openButtonLabel = isSavingsOnly ? 'Open savings account' : isDailyOnly ? 'Open daily deposit account' : 'Open deposit account';
+    const activeLabel = isSavingsOnly ? 'Active savings accounts' : isDailyOnly ? 'Active DD accounts' : 'Active deposit accounts';
+    const balanceLabel = isSavingsOnly ? 'Total savings balance' : isDailyOnly ? 'Total daily deposit balance' : 'Total deposit balance';
+
     return <div className="admin-page">
         <div className="page-heading">
             <div>
-                <div className="eyebrow">OPERATIONS / DEPOSITS</div>
-                <h1>Deposits</h1>
-                <p>Manage deposit accounts, customer-linked entries, balances and statements.</p>
+                <div className="eyebrow">{pageEyebrow}</div>
+                <h1>{pageTitle}</h1>
+                <p>{pageSubtitle}</p>
             </div>
-            <button className="primary-button" onClick={() => setModal('account')}><Plus size={16} /> Open deposit account</button>
+            <button className="primary-button" onClick={() => setModal('account')}><Plus size={16} /> {openButtonLabel}</button>
         </div>
-        <SummaryStrip items={[{ label: 'Active deposit accounts', value: String(depositRows.filter((row) => row.status === 'Active').length), tone: 'green' }, { label: 'Total deposit balance', value: formatCurrency(totalBalance) }, { label: 'Entries today', value: String(entriesToday), tone: 'orange' }, { label: 'Needs review', value: String(reviewCount), tone: 'red' }]} />
+        <SummaryStrip items={[{ label: activeLabel, value: String(activeCount), tone: 'green' }, { label: balanceLabel, value: formatCurrency(totalBalance) }, { label: 'Entries today', value: String(entriesToday), tone: 'orange' }, { label: 'Needs review', value: String(reviewCount), tone: 'red' }]} />
         <section className="panel table-panel">
             <div className="filter-bar">
                 <div className="filter-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search customer, account, agent or reference..." aria-label="Search deposits" /></div>
@@ -847,7 +900,7 @@ export function DepositsPage() {
                 <table className="data-table">
                     <thead>
                         <tr>
-                            <th>Deposit account</th>
+                            <th>{isSavingsOnly ? 'Savings account' : isDailyOnly ? 'Daily deposit account' : 'Deposit account'}</th>
                             <th>Balance</th>
                             <th>Details</th>
                             <th>Status</th>
@@ -855,7 +908,7 @@ export function DepositsPage() {
                         </tr>
                     </thead>
                     <tbody>{loading ? <tr>
-                        <td colSpan={5} className="empty-state"><Loader2 className="spin" size={16} /> Loading deposit accounts…</td>
+                        <td colSpan={5} className="empty-state"><Loader2 className="spin" size={16} /> Loading accounts…</td>
                     </tr> : visibleRows.length ? visibleRows.map((row) => <tr key={row.id} onClick={() => { setSelected(row); setModal('detail'); }}>
                         <td>
                             <strong>{row.customerName}</strong>
@@ -875,7 +928,7 @@ export function DepositsPage() {
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
                                 <button
                                     className="row-action"
-                                    title="Edit deposit account"
+                                    title="Edit account"
                                     onClick={(event) => { event.stopPropagation(); setSelected(row); setModal('edit'); }}
                                     aria-label={`Edit ${row.id}`}
                                 >
@@ -883,7 +936,7 @@ export function DepositsPage() {
                                 </button>
                                 <button
                                     className="row-action"
-                                    title="Close / Delete deposit account"
+                                    title="Close / Delete account"
                                     onClick={(event) => { event.stopPropagation(); setDeleteTarget(row); }}
                                     aria-label={`Delete ${row.id}`}
                                     style={{ color: '#dc2626' }}
@@ -896,13 +949,13 @@ export function DepositsPage() {
                             </div>
                         </td>
                     </tr>) : <tr>
-                        <td colSpan={5} className="empty-state">No deposit accounts match the current search or filter.</td>
+                        <td colSpan={5} className="empty-state">No {isSavingsOnly ? 'savings' : isDailyOnly ? 'daily deposit' : 'deposit'} accounts match the current search or filter.</td>
                     </tr>}</tbody>
                 </table>
             </div>
-            <Pagination page={page} pageSize={10} totalItems={filteredRows.length} itemName="deposits" setPage={setPage} />
+            <Pagination page={page} pageSize={10} totalItems={filteredRows.length} itemName={isSavingsOnly ? 'savings accounts' : isDailyOnly ? 'daily deposits' : 'deposits'} setPage={setPage} />
 </section>
-        {modal === 'account' && <DepositModal mode="account" onClose={close} onSave={(input) => saveAccount(input as DepositInput)} />}
+        {modal === 'account' && <DepositModal mode="account" accountKind={accountKind} onClose={close} onSave={(input) => saveAccount(input as DepositInput)} />}
         {modal === 'transaction' && selected && <DepositModal mode="transaction" record={selected} onClose={close} onSave={(input) => saveTransaction(input as DepositTransactionInput)} />}
         {modal === 'edit' && selected && <DepositEditModal record={selected} onClose={close} onSave={saveEdit} />}
         {modal === 'statement' && selected && <DepositStatementModal record={selected} onClose={close} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}

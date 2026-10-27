@@ -283,7 +283,7 @@ export function DashboardPage() {
                         </div>
                     </div>
 
-                    <div className="bank-product-card" onClick={() => navigate('/deposits')}>
+                    <div className="bank-product-card" onClick={() => navigate('/savings')}>
                         <div className="bank-product-header">
                             <div>
                                 <div className="bank-product-title">Savings Bachat</div>

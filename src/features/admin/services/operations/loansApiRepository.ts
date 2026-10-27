@@ -191,6 +191,8 @@ export interface LoanRepository {
     cancelApplication(applicationId: string, reason: string): Promise<void>;
     /** Permanently deletes an undisbursed loan application (for mistake entries). */
     purgeApplication(applicationId: string, reason?: string): Promise<void>;
+    /** Permanently deletes a live loan account (administrative override for mistakes/duplicates). */
+    deleteLoan(loanId: string, reason?: string): Promise<void>;
     disburse(applicationId: string, disbursedOn?: string): Promise<void>;
     reschedule(loanId: string, input: RescheduleLoanInput): Promise<void>;
     settle(loanId: string, input?: SettleLoanInput): Promise<LoanSettleResult>;
@@ -730,6 +732,13 @@ export class ApiLoanRepository implements LoanRepository {
 
     async purgeApplication(applicationId: string, reason?: string): Promise<void> {
         await apiClient.request(`/loans/applications/${applicationId}?purge=true`, {
+            method: 'DELETE',
+            body: reason ? { reason } : undefined,
+        });
+    }
+
+    async deleteLoan(loanId: string, reason?: string): Promise<void> {
+        await apiClient.request(`/loans/${loanId}`, {
             method: 'DELETE',
             body: reason ? { reason } : undefined,
         });

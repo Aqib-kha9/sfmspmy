@@ -3,7 +3,7 @@
 import { Pagination } from '../../../components/ui/Pagination';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ArrowUpRight, CalendarDays, CheckCircle2, Download, FileText, Filter, Loader2, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Download, FileText, Filter, Loader2, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { loansRepository } from '../services/operations/loansApiRepository';
 import type { LoanInput as LoanRepoInput, LoanRepaymentInput as LoanRepoRepaymentInput, LoanProductView } from '../services/operations/loansApiRepository';
 import type { ApproveLoanInput, LoanPaymentMethod, RescheduleLoanInput, SettleLoanInput, WriteOffLoanInput } from '../../../lib/api/types';
@@ -564,6 +564,91 @@ export function LoanLifecycleModal({ record, kind, onClose, onSave }: { record: 
     </Modal>;
 }
 
+export function LoanDeleteModal({
+    record,
+    onClose,
+    onConfirm,
+}: {
+    record: LoanRecord;
+    onClose: () => void;
+    onConfirm: (reason: string) => Promise<void>;
+}) {
+    const [reason, setReason] = useState('');
+    const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleSubmit = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!reason.trim()) {
+            setError('Please provide a reason for deleting/purging this loan account.');
+            return;
+        }
+        setSubmitting(true);
+        setError('');
+        try {
+            await onConfirm(reason.trim());
+        } catch (err: unknown) {
+            setError(messageFor(err, 'Failed to delete/purge loan account.'));
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <Modal title={`Delete / Purge Loan Account · ${record.id}`} eyebrow="LOAN ADMINISTRATIVE ACTION" onClose={onClose}>
+            <form onSubmit={handleSubmit}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ padding: '12px 14px', background: 'var(--bg-muted, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-color, #e2e8f0)', fontSize: '0.875rem' }}>
+                        <div><strong>Customer:</strong> {record.customerName} ({record.customerId})</div>
+                        <div><strong>Loan Number:</strong> {record.id} · {record.loanType}</div>
+                        <div><strong>Disbursed Principal:</strong> {formatCurrency(record.principal)}</div>
+                        <div><strong>Outstanding Balance:</strong> <span style={{ fontWeight: 600, color: record.outstandingAmount > 0 ? '#dc2626' : 'inherit' }}>{formatCurrency(record.outstandingAmount)}</span></div>
+                    </div>
+
+                    <div style={{ padding: '10px 12px', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '6px', color: '#9f1239', fontSize: '0.825rem', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                        <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div>
+                            <strong>Permanent Administrative Deletion:</strong> This action permanently removes this loan account, its installment schedule, collateral and guarantor links from the system. Use this to remove duplicate or mistakenly disbursed loans (e.g. administrative error corrections).
+                        </div>
+                    </div>
+
+                    <label className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
+                            Reason for deletion <Req />
+                        </span>
+                        <textarea
+                            className="text-input"
+                            rows={3}
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            placeholder="e.g. Duplicate loan disbursed by mistake, operator entry error"
+                            required
+                        />
+                    </label>
+
+                    {error && (
+                        <div style={{ color: 'var(--color-danger, #dc2626)', fontSize: '0.85rem' }}>{error}</div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                        <button type="button" className="secondary-button" onClick={onClose} disabled={submitting}>
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            className="primary-button"
+                            style={{ background: '#dc2626', borderColor: '#dc2626', color: '#ffffff' }}
+                            disabled={submitting}
+                        >
+                            {submitting ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+                            {submitting ? 'Deleting…' : 'Delete / Purge Loan'}
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </Modal>
+    );
+}
+
 /**
  * Re-amortises the remaining balance over a fresh term. The backend reschedule
  * contract requires an effective date plus a reason of at least 3 characters
@@ -979,6 +1064,7 @@ export function LoanDetail({
     onEdit,
     onCancel,
     onPurge,
+    onDeleteLoan,
     onToast,
     onViewReceipt,
 }: {
@@ -990,6 +1076,7 @@ export function LoanDetail({
     onEdit?: () => void;
     onCancel?: () => void;
     onPurge?: () => void;
+    onDeleteLoan?: () => void;
     onToast: (message: string) => void;
     onViewReceipt: (receipt: ReceiptData) => void;
 }) {
@@ -1003,15 +1090,34 @@ export function LoanDetail({
     const charges = (record.processingFee ?? 0) + (record.documentationFee ?? 0) + (record.insuranceFee ?? 0) + (record.otherCharges ?? 0);
     const canApproveStage = record.lifecycle === 'Application' || record.lifecycle === 'Underwriting';
     const canDisburseStage = record.lifecycle === 'Approved';
-    const roleCanApprove = hasRole('president', 'vice_president', 'managing_director');
-    const roleCanComplete = hasRole('president', 'vice_president', 'managing_director');
+    const roleCanApprove = hasRole('president', 'vice_president', 'managing_director', 'super_admin');
+    const roleCanComplete = hasRole('president', 'vice_president', 'managing_director', 'super_admin');
     const roleCanWriteLoan = can('loans.write');
     const isOpenLoan = record.lifecycle !== 'Settled' && record.lifecycle !== 'Written off' && record.lifecycle !== 'Completed';
 
     return <>
         <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
             <section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label={`Loan ${record.id}`}>
-                <div className="admin-modal-header"><div><div className="eyebrow">LOAN ACCOUNT / {record.id}</div><h2>{record.customerName}</h2><p>{record.loanType} · {record.customerId} · {record.customerPhone}</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div>
+                <div className="admin-modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={onClose}
+                            aria-label="Back / Return"
+                            title="Go back / close"
+                            style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px', borderRadius: '6px' }}
+                        >
+                            <ArrowLeft size={15} /> <span>Back</span>
+                        </button>
+                        <div>
+                            <div className="eyebrow">LOAN ACCOUNT / {record.id}</div>
+                            <h2>{record.customerName}</h2>
+                            <p>{record.loanType} · {record.customerId} · {record.customerPhone}</p>
+                        </div>
+                    </div>
+                    <button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button>
+                </div>
                 <div className="customer-profile-summary"><div className="customer-avatar">{record.customerName.split(' ').map((part) => part[0]).join('')}</div><div><strong>{record.id}</strong><span>{record.lifecycle} · {record.tenureMonths} months · {record.interestRate}% p.a.</span></div><StatusPill status={record.status} /></div>
                 <div className="customer-detail-grid">
                     <div><span>दिलेले मुद्दल (Disbursed Principal)</span><strong className="table-amount">₹{record.principal.toLocaleString('en-IN')}</strong></div>
@@ -1110,6 +1216,11 @@ export function LoanDetail({
                     {record.loanId && isOpenLoan && roleCanComplete && <button className="secondary-button" onClick={() => setRescheduleOpen(true)}>Reschedule</button>}
                     {record.outstandingAmount === 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Settled')}>Settle</button>}
                     {record.outstandingAmount > 0 && roleCanComplete && <button className="secondary-button" onClick={() => setLifecycleDialog('Written off')}>Write off</button>}
+                    {record.loanId && roleCanComplete && onDeleteLoan && (
+                        <button className="secondary-button" style={{ color: '#dc2626', borderColor: '#fca5a5' }} onClick={onDeleteLoan} title="Permanently delete duplicate or mistaken loan account">
+                            <Trash2 size={15} /> Delete loan
+                        </button>
+                    )}
                     {roleCanWriteLoan && <button className="primary-button" onClick={onCollection}><Plus size={15} /> Record installment</button>}
                 </div>
             </section>
@@ -1233,11 +1344,14 @@ export function LoansPage() {
     const [page, setPage] = useState(1);
     const [modal, setModal] = useState<'account' | 'collection' | 'detail' | 'edit' | 'cancel' | 'purge' | null>(null);
     const [selected, setSelected] = useState<LoanRecord | undefined>();
+    const [deleteLoanTarget, setDeleteLoanTarget] = useState<LoanRecord | null>(null);
     const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
     const [toast, setToast] = useState('');
+    const { hasRole } = useAuth();
+    const roleCanComplete = hasRole('president', 'vice_president', 'managing_director', 'super_admin');
     const pageSize = 4;
     const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600); };
-    const close = () => { setModal(null); setSelected(undefined); };
+    const close = () => { setModal(null); setSelected(undefined); setDeleteLoanTarget(null); };
 
     useEffect(() => {
         const currentParam = searchParams.get('status');
@@ -1419,6 +1533,22 @@ export function LoansPage() {
             notify(messageFor(failure, 'Unable to purge loan application.'));
         }
     };
+    const confirmDeleteLoan = async (reason: string) => {
+        if (!deleteLoanTarget) return;
+        const targetId = deleteLoanTarget.loanId ?? deleteLoanTarget.id;
+        try {
+            await loansRepository.deleteLoan(targetId, reason);
+            const refreshed = await loansRepository.list();
+            setLoanRows(refreshed);
+            if (selected?.id === deleteLoanTarget.id) {
+                close();
+            }
+            setDeleteLoanTarget(null);
+            notify(`Loan ${deleteLoanTarget.id} permanently deleted.`);
+        } catch (failure) {
+            notify(messageFor(failure, 'Unable to delete loan account.'));
+        }
+    };
     const openDetail = (record: LoanRecord) => {
         setSelected(record);
         setModal('detail');
@@ -1510,6 +1640,17 @@ export function LoansPage() {
                         </button>
                     </>
                 )}
+                {row.loanId && roleCanComplete && (
+                    <button
+                        className="row-action"
+                        style={{ color: '#dc2626' }}
+                        title="Permanently delete loan account"
+                        onClick={(event) => { event.stopPropagation(); setDeleteLoanTarget(row); }}
+                        aria-label={`Delete loan ${row.id}`}
+                    >
+                        <Trash2 size={15} />
+                    </button>
+                )}
                 <button className="row-action" onClick={(event) => { event.stopPropagation(); openDetail(row); }} aria-label={`Open ${row.id}`} title="View details">
                     <ArrowUpRight size={15} />
                 </button>
@@ -1517,5 +1658,5 @@ export function LoansPage() {
         </td>
     </tr>
 )) : <tr><td className="empty-state" colSpan={7}>No loan accounts match the current search and status filter.</td></tr>}</tbody></table></div><Pagination page={page} pageSize={pageSize} totalItems={filteredRows.length} itemName="loans" setPage={setPage} />
-</section>{modal === 'account' && <LoanModal mode="account" onClose={close} onSave={(input) => saveAccount(input as LoanInput)} />}{modal === 'collection' && selected && <LoanModal mode="collection" record={selected} onClose={close} onSave={(input) => saveCollection(input as LoanCollectionInput)} />}{modal === 'detail' && selected && <LoanDetail record={selected} onClose={close} onCollection={() => setModal('collection')} onLifecycle={updateLifecycle} onApprove={approveApplication} onEdit={() => setModal('edit')} onCancel={() => setModal('cancel')} onPurge={() => setModal('purge')} onToast={notify} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}{modal === 'edit' && selected && <LoanEditModal record={selected} onClose={close} onSave={saveEditApplication} />}{modal === 'cancel' && selected && <LoanCancelModal record={selected} onClose={close} onSave={saveCancelApplication} />}{modal === 'purge' && selected && <LoanPurgeModal record={selected} onClose={close} onSave={savePurgeApplication} />}{activeReceipt && <TransactionReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />}{toast && <div className="admin-toast"><CheckCircle2 size={16} />{toast}</div>}</div>;
+</section>{modal === 'account' && <LoanModal mode="account" onClose={close} onSave={(input) => saveAccount(input as LoanInput)} />}{modal === 'collection' && selected && <LoanModal mode="collection" record={selected} onClose={close} onSave={(input) => saveCollection(input as LoanCollectionInput)} />}{modal === 'detail' && selected && <LoanDetail record={selected} onClose={close} onCollection={() => setModal('collection')} onLifecycle={updateLifecycle} onApprove={approveApplication} onEdit={() => setModal('edit')} onCancel={() => setModal('cancel')} onPurge={() => setModal('purge')} onDeleteLoan={() => setDeleteLoanTarget(selected)} onToast={notify} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}{modal === 'edit' && selected && <LoanEditModal record={selected} onClose={close} onSave={saveEditApplication} />}{modal === 'cancel' && selected && <LoanCancelModal record={selected} onClose={close} onSave={saveCancelApplication} />}{modal === 'purge' && selected && <LoanPurgeModal record={selected} onClose={close} onSave={savePurgeApplication} />}{deleteLoanTarget && <LoanDeleteModal record={deleteLoanTarget} onClose={() => setDeleteLoanTarget(null)} onConfirm={confirmDeleteLoan} />}{activeReceipt && <TransactionReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />}{toast && <div className="admin-toast"><CheckCircle2 size={16} />{toast}</div>}</div>;
 }

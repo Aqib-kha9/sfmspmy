@@ -21,7 +21,8 @@ export function AdminPage({ path }: { path: string }) {
     if (path === '/security') return <ScopedSecurityPage />;
     if (path === '/settings') return <SettingsPage />;
     if (path === '/customers') return <ScopedCustomerPage />;
-    if (path === '/deposits') return <DepositsPage />;
+    if (path === '/deposits') return <DepositsPage accountKind="daily" />;
+    if (path === '/savings') return <DepositsPage accountKind="savings" />;
     if (path === '/recurring-deposits') return <RecurringDepositsPage />;
     if (path === '/fixed-deposits') return <FixedDepositsPage />;
     if (path === '/loans') return <LoansPage />;
