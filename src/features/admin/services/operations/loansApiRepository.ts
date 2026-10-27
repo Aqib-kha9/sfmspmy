@@ -139,6 +139,10 @@ export type LoanRecord = {
     closureType?: string;
     status: Status;
     lifecycle: LoanLifecycle;
+    totalInstalments?: number;
+    paidInstalments?: number;
+    pendingInstalments?: number;
+    dueAmount?: number;
     installments: LoanInstallment[];
     events: Array<{ id: string; type: string; date: string; actor: string; reference: string; note: string; metadata?: Record<string, unknown> }>;
 };
@@ -469,6 +473,10 @@ function loanToRecord(view: LoanView, products: Map<string, LoanProductView>, in
         approvedOn: view.disbursedOn ? formatDate(view.disbursedOn) : undefined,
         status: LOAN_STATUS_FROM_API[view.status] ?? 'Active',
         lifecycle: LOAN_LIFECYCLE_FROM_API[view.status] ?? 'Active',
+        totalInstalments: view.totalInstalments ?? instalments.length,
+        paidInstalments: view.paidInstalments ?? instalments.filter((i) => i.status === 'Paid').length,
+        pendingInstalments: view.pendingInstalments ?? instalments.filter((i) => i.status !== 'Paid').length,
+        dueAmount: view.dueAmount ?? 0,
         installments: instalments,
         events,
     };
@@ -541,6 +549,10 @@ function applicationToRecord(view: LoanApplicationView, products: Map<string, Lo
         approvedOn: view.approvedOn ? formatDate(view.approvedOn) : undefined,
         status: APPLICATION_STATUS_FROM_API[view.status] ?? 'Review',
         lifecycle: APPLICATION_LIFECYCLE_FROM_API[view.status] ?? 'Application',
+        totalInstalments: 0,
+        paidInstalments: 0,
+        pendingInstalments: 0,
+        dueAmount: 0,
         installments: [],
         events: [],
     };

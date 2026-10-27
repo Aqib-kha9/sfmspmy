@@ -287,6 +287,10 @@ export type LoanRecord = {
     closureType?: string;
     status: Status;
     lifecycle: LoanLifecycle;
+    totalInstalments?: number;
+    paidInstalments?: number;
+    pendingInstalments?: number;
+    dueAmount?: number;
     installments: LoanInstallment[];
     events: Array<{ id: string; type: string; date: string; actor: string; reference: string; note: string }>;
 };
@@ -1945,7 +1949,7 @@ export function LoansPage() {
     const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
     const visibleRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
     const outstanding = loanRows.reduce((total, row) => total + row.outstandingAmount, 0);
-    const dueAmount = loanRows.flatMap((row) => row.installments).filter((item) => item.status !== 'Paid').reduce((total, item) => total + item.amount, 0);
+    const dueAmount = loanRows.reduce((total, row) => total + (row.dueAmount ?? row.installments.filter((item) => item.status !== 'Paid').reduce((sum, item) => sum + item.amount, 0)), 0);
     const saveAccount = async (input: LoanInput) => {
         try {
             const record = await loansRepository.create(input as LoanRepoInput);
@@ -2119,7 +2123,11 @@ export function LoansPage() {
                 .catch((reason) => { notify(messageFor(reason, 'Unable to load the loan ledger.')); });
         }
     };
-    return <div className="admin-page"><div className="page-heading"><div><div className="eyebrow">OPERATIONS / LOANS</div><h1>Loans</h1><p>Manage loan accounts, repayment schedules, collections and customer history.</p></div><button className="primary-button" onClick={() => setModal('account')}><Plus size={16} /> Create loan account</button></div><SummaryStrip items={[{ label: 'Active loans', value: String(loanRows.filter((row) => row.status === 'Active').length), tone: 'green' }, { label: 'Outstanding amount', value: `₹${(outstanding / 100000).toFixed(2)}L` }, { label: 'Due amount', value: `₹${dueAmount.toLocaleString('en-IN')}`, tone: 'orange' }, { label: 'Overdue accounts', value: String(loanRows.filter((row) => row.status === 'Overdue').length), tone: 'red' }]} /><section className="panel table-panel"><div className="filter-bar"><div className="filter-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search loan, customer, agent or reference..." aria-label="Search loans" /></div><div role="tablist" aria-label="Loan scheme tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '0 0 4px' }}>{(['All', 'Daily Loan', 'Weekly Loan', 'Personal Loan', 'Business Loan', 'Mortgage Loan', 'Gold Loan', 'SHG Loan', 'Other Loan'] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={loanTypeFilter === tab} onClick={() => { setLoanTypeFilter(tab); setPage(1); }} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid var(--border, #d7dbe0)', background: loanTypeFilter === tab ? 'var(--primary, #1f6feb)' : 'transparent', color: loanTypeFilter === tab ? '#fff' : 'inherit', cursor: 'pointer', fontSize: 13 }}>{tab === 'All' ? 'All loans' : tab.replace(' Loan', '')}{tab !== 'All' ? ` (${loanRows.filter((row) => row.loanType === tab).length})` : ''}</button>)}</div><select className="filter-button customer-status-filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} aria-label="Filter loans by status"><option value="Active & Pipeline">Active &amp; Pipeline</option><option value="All">All statuses (incl. Inactive)</option><option value="Active">Active</option><option value="Pending">Pending</option><option value="Overdue">Overdue</option><option value="Completed">Completed</option><option value="Review">Review</option><option value="Inactive">Inactive / Cancelled</option></select><button className="filter-button" onClick={() => notify('Loan due-date range selector is ready for local data.')}><CalendarDays size={15} /> Due range</button><button className="filter-button" onClick={() => { setStatusFilter('Overdue'); setPage(1); notify('Showing overdue loan accounts.'); }}><SlidersHorizontal size={15} /> Filters</button><button className="icon-button export-button" onClick={() => notify(`${filteredRows.length} loan account records prepared for export.`)} aria-label="Export loans"><Download size={16} /></button></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Loan account (कर्ज खाते)</th><th>Disbursed (दिलेले मुद्दल)</th><th>Collected (जमा रक्कम)</th><th>Remaining (शिल्लक बाकी)</th><th>Installment (हप्ता)</th><th>Schedule</th><th>Status</th><th /></tr></thead><tbody>{loading ? <tr><td className="empty-state" colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#888' }}><Loader2 size={24} className="spin" style={{ margin: '0 auto 10px', display: 'block', opacity: 0.5 }} /> Loading loan accounts...</td></tr> : visibleRows.length ? visibleRows.map((row) => (
+    return <div className="admin-page"><div className="page-heading"><div><div className="eyebrow">OPERATIONS / LOANS</div><h1>Loans</h1><p>Manage loan accounts, repayment schedules, collections and customer history.</p></div><button className="primary-button" onClick={() => setModal('account')}><Plus size={16} /> Create loan account</button></div><SummaryStrip items={[{ label: 'Active loans', value: String(loanRows.filter((row) => row.status === 'Active').length), tone: 'green' }, { label: 'Outstanding amount', value: `₹${(outstanding / 100000).toFixed(2)}L` }, { label: 'Due amount', value: `₹${dueAmount.toLocaleString('en-IN')}`, tone: 'orange' }, { label: 'Overdue accounts', value: String(loanRows.filter((row) => row.status === 'Overdue').length), tone: 'red' }]} /><section className="panel table-panel"><div className="filter-bar"><div className="filter-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search loan, customer, agent or reference..." aria-label="Search loans" /></div><div role="tablist" aria-label="Loan scheme tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '0 0 4px' }}>{(['All', 'Daily Loan', 'Weekly Loan', 'Personal Loan', 'Business Loan', 'Mortgage Loan', 'Gold Loan', 'SHG Loan', 'Other Loan'] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={loanTypeFilter === tab} onClick={() => { setLoanTypeFilter(tab); setPage(1); }} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid var(--border, #d7dbe0)', background: loanTypeFilter === tab ? 'var(--primary, #1f6feb)' : 'transparent', color: loanTypeFilter === tab ? '#fff' : 'inherit', cursor: 'pointer', fontSize: 13 }}>{tab === 'All' ? 'All loans' : tab.replace(' Loan', '')}{tab !== 'All' ? ` (${loanRows.filter((row) => row.loanType === tab).length})` : ''}</button>)}</div><select className="filter-button customer-status-filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} aria-label="Filter loans by status"><option value="Active & Pipeline">Active &amp; Pipeline</option><option value="All">All statuses (incl. Inactive)</option><option value="Active">Active</option><option value="Pending">Pending</option><option value="Overdue">Overdue</option><option value="Completed">Completed</option><option value="Review">Review</option><option value="Inactive">Inactive / Cancelled</option></select><button className="filter-button" onClick={() => notify('Loan due-date range selector is ready for local data.')}><CalendarDays size={15} /> Due range</button><button className="filter-button" onClick={() => { setStatusFilter('Overdue'); setPage(1); notify('Showing overdue loan accounts.'); }}><SlidersHorizontal size={15} /> Filters</button><button className="icon-button export-button" onClick={() => notify(`${filteredRows.length} loan account records prepared for export.`)} aria-label="Export loans"><Download size={16} /></button></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Loan account (कर्ज खाते)</th><th>Disbursed (दिलेले मुद्दल)</th><th>Collected (जमा रक्कम)</th><th>Remaining (शिल्लक बाकी)</th><th>Installment (हप्ता)</th><th>Schedule</th><th>Status</th><th /></tr></thead><tbody>{loading ? <tr><td className="empty-state" colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#888' }}><Loader2 size={24} className="spin" style={{ margin: '0 auto 10px', display: 'block', opacity: 0.5 }} /> Loading loan accounts...</td></tr> : visibleRows.length ? visibleRows.map((row) => {
+        const paidCount = row.paidInstalments ?? row.installments.filter((item) => item.status === 'Paid').length;
+        const pendingCount = row.pendingInstalments ?? row.installments.filter((item) => item.status !== 'Paid').length;
+        const totalCount = row.totalInstalments ?? row.installments.length;
+        return (
     <tr key={row.id} onClick={() => openDetail(row)}>
         <td>
             <strong>{row.customerName}</strong>
@@ -2132,11 +2140,11 @@ export function LoansPage() {
         </td>
         <td>
             <strong className="table-amount" style={{ color: '#059669' }}>₹{row.paidAmount.toLocaleString('en-IN')}</strong>
-            <span className="table-sub">{row.installments.filter((item) => item.status === 'Paid').length} paid instalments</span>
+            <span className="table-sub">{paidCount} paid instalments</span>
         </td>
         <td>
             <strong className="loan-outstanding-amount" style={{ color: '#d97706' }}>₹{row.outstandingAmount.toLocaleString('en-IN')}</strong>
-            <span className="table-sub">{row.installments.filter((item) => item.status !== 'Paid').length} pending</span>
+            <span className="table-sub">{pendingCount} pending</span>
         </td>
         <td>
             <strong className="table-amount">
@@ -2146,18 +2154,18 @@ export function LoansPage() {
                 </span>
             </strong>
             <span className="table-sub">
-                {row.installments.length > 0 ? (
-                    `${row.installments.length} instalments`
+                {totalCount > 0 ? (
+                    `${totalCount} instalments`
                 ) : (
                     <span style={{ color: '#d97706', fontSize: 11, fontWeight: 500 }}>Pending disbursement</span>
                 )}
             </span>
         </td>
         <td>
-            {row.installments.length > 0 ? (
+            {totalCount > 0 ? (
                 <>
-                    <strong className="green-text">{row.installments.filter((item) => item.status === 'Paid').length} paid</strong>
-                    <span className="table-sub orange-text">{row.installments.filter((item) => item.status !== 'Paid').length} pending</span>
+                    <strong className="green-text">{paidCount} paid</strong>
+                    <span className="table-sub orange-text">{pendingCount} pending</span>
                 </>
             ) : (
                 <span className="table-sub" style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
@@ -2218,6 +2226,7 @@ export function LoansPage() {
             </div>
         </td>
     </tr>
-)) : <tr><td className="empty-state" colSpan={7}>No loan accounts match the current search and status filter.</td></tr>}</tbody></table></div><Pagination page={page} pageSize={pageSize} totalItems={filteredRows.length} itemName="loans" setPage={setPage} />
+        );
+    }) : <tr><td className="empty-state" colSpan={7}>No loan accounts match the current search and status filter.</td></tr>}</tbody></table></div><Pagination page={page} pageSize={pageSize} totalItems={filteredRows.length} itemName="loans" setPage={setPage} />
 </section>{modal === 'account' && <LoanModal mode="account" onClose={close} onSave={(input) => saveAccount(input as LoanInput)} />}{modal === 'collection' && selected && <LoanModal mode="collection" record={selected} onClose={close} onSave={(input) => saveCollection(input as LoanCollectionInput)} />}{modal === 'detail' && selected && <LoanDetail record={selected} onClose={close} onCollection={() => setModal('collection')} onLifecycle={updateLifecycle} onApprove={approveApplication} onEdit={() => setModal('edit')} onCancel={() => setModal('cancel')} onPurge={() => setModal('purge')} onDeleteLoan={() => setDeleteLoanTarget(selected)} onToast={notify} onViewReceipt={(receipt) => setActiveReceipt(receipt)} />}{modal === 'edit' && selected && <LoanEditModal record={selected} onClose={close} onSave={saveEditApplication} />}{modal === 'cancel' && selected && <LoanCancelModal record={selected} onClose={close} onSave={saveCancelApplication} />}{modal === 'purge' && selected && <LoanPurgeModal record={selected} onClose={close} onSave={savePurgeApplication} />}{deleteLoanTarget && <LoanDeleteModal record={deleteLoanTarget} onClose={() => setDeleteLoanTarget(null)} onConfirm={confirmDeleteLoan} />}{activeReceipt && <TransactionReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />}{toast && <div className="admin-toast"><CheckCircle2 size={16} />{toast}</div>}</div>;
 }

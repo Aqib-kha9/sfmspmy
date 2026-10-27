@@ -121,6 +121,10 @@ export interface LoanView {
     closureType: string | null;
     createdAt: string;
     updatedAt: string;
+    totalInstalments?: number;
+    paidInstalments?: number;
+    pendingInstalments?: number;
+    dueAmount?: number;
 }
 
 /** Lightweight loan reference returned by lifecycle actions. */
