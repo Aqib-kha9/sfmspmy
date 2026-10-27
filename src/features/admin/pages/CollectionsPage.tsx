@@ -17,9 +17,10 @@
 
 import { Pagination } from '../../../components/ui/Pagination';
 import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, CalendarDays, CheckCircle2, ChevronRight, Download, Loader2, Pencil, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { collectionsRepository, type CollectionRecord, type UpdateCollectionInput } from '../services/operations/collectionsApiRepository';
+import { customerRepository } from '../../customers/services/customerApiRepository';
 import { formatAmount, formatTimestamp, messageFor, querySuffix } from '../services/operations/helpers';
 import { StatusPill, SummaryStrip } from '../components/adminShared';
 import { useAuth } from '../../auth/AuthContext';
@@ -141,6 +142,8 @@ export function EmergencyApprovalModal({ onClose, onSave }: { onClose: () => voi
     const support = useActionSupport(true);
     const [agentId, setAgentId] = useState('');
     const [customerId, setCustomerId] = useState('');
+    const [customerAccounts, setCustomerAccounts] = useState<Array<{ id: string; accountNumber: string; label: string; type: string }>>([]);
+    const [loadingAccounts, setLoadingAccounts] = useState(false);
     const [businessDate, setBusinessDate] = useState(new Date().toISOString().slice(0, 10));
     const [productType, setProductType] = useState<CollectionProductType>('savingsDeposit');
     const [accountId, setAccountId] = useState('');
@@ -155,13 +158,48 @@ export function EmergencyApprovalModal({ onClose, onSave }: { onClose: () => voi
     const [error, setError] = useState('');
     const accountField = ACCOUNT_FIELD[productType];
 
+    // Load customer's active services/accounts dynamically when customer changes
+    useEffect(() => {
+        if (!customerId) {
+            setCustomerAccounts([]);
+            return;
+        }
+        let active = true;
+        setLoadingAccounts(true);
+        customerRepository.detail(customerId)
+            .then((cust) => {
+                if (active && cust?.services) {
+                    setCustomerAccounts(cust.services.map((s) => ({
+                        id: s.id,
+                        accountNumber: s.accountNumber,
+                        label: s.label,
+                        type: s.type,
+                    })));
+                }
+            })
+            .catch(() => {
+                if (active) setCustomerAccounts([]);
+            })
+            .finally(() => {
+                if (active) setLoadingAccounts(false);
+            });
+        return () => { active = false; };
+    }, [customerId]);
+
+    const matchingAccounts = useMemo(() => {
+        if (!productType || productType === 'penalty') return customerAccounts;
+        if (productType === 'loan') return customerAccounts.filter((a) => a.type === 'Loan');
+        if (productType === 'recurringDeposit') return customerAccounts.filter((a) => a.type === 'Recurring deposit');
+        return customerAccounts.filter((a) => a.type === 'Savings');
+    }, [customerAccounts, productType]);
+
     const submit = async (event: FormEvent) => {
         event.preventDefault();
         setError('');
         const numericAmount = Number(amount);
         if (!agentId) { setError('Select the collecting agent.'); return; }
         if (!customerId) { setError('Select the customer.'); return; }
-        if (accountField && !accountId.trim()) { setError('Enter the linked account / loan id.'); return; }
+        if (accountField && !accountId.trim()) { setError('Enter or select the linked account / loan number.'); return; }
         if (!Number.isFinite(numericAmount) || numericAmount <= 0) { setError('Enter a collection amount greater than zero.'); return; }
         const payload: EmergencyApprovalInput = {
             agentId,
@@ -186,7 +224,129 @@ export function EmergencyApprovalModal({ onClose, onSave }: { onClose: () => voi
         }
     };
 
-    return <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label="Record emergency collection"><div className="admin-modal-header"><div><div className="eyebrow">COLLECTION WORKFLOW / M.D. EMERGENCY APPROVAL</div><h2>Record doorstep collection</h2><p>Approves and records a collection from an unassigned customer in a single step. The entry is created directly in accepted state, so it is not queued for review.</p></div><button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button></div><form className="form-grid customer-form" onSubmit={(event) => void submit(event)}><FormLegend /><label><span>Collecting agent <Req /></span><select value={agentId} onChange={(event) => setAgentId(event.target.value)} required><option value="">Select collecting agent</option>{support.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select></label><label><span>Customer <Req /></span><select value={customerId} onChange={(event) => setCustomerId(event.target.value)} required><option value="">Select customer</option>{support.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.label}</option>)}</select></label><label><span>Collection date <Req /></span><input type="date" value={businessDate} onChange={(event) => setBusinessDate(event.target.value)} required /></label><label><span>Transaction type <Req /></span><select value={productType} onChange={(event) => setProductType(event.target.value as CollectionProductType)}>{PRODUCT_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label><label><span>{accountField === 'loanId' ? 'Loan ID' : 'Account ID'} {accountField ? <Req /> : <Opt />}</span><input value={accountId} onChange={(event) => setAccountId(event.target.value)} placeholder={accountField ? 'Linked account / loan UUID' : 'Not required for penalty'} disabled={!accountField} /></label><label><span>Amount collected <Req /></span><input type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="3000" /></label><label><span>Payment mode <Req /></span><select value={mode} onChange={(event) => setMode(event.target.value as CollectionMode)}>{MODES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label><span>Instrument reference <Opt /></span><input value={instrumentRef} onChange={(event) => setInstrumentRef(event.target.value)} placeholder="Cheque / UTR reference" /></label><label><span>Remark <Opt /></span><input value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="Optional note for the audit trail" /></label><label className="full-field"><span>Flags</span><span className="form-note">Partial marks a short payment that needs an allocation decision; advance marks a payment recorded ahead of schedule.</span></label><label><span>Partial payment <Opt /></span><input type="checkbox" checked={isPartial} onChange={(event) => setIsPartial(event.target.checked)} /></label><label><span>Advance payment <Opt /></span><input type="checkbox" checked={isAdvance} onChange={(event) => setIsAdvance(event.target.checked)} /></label><label className="full-field"><span>Customer acknowledgement <Opt /></span><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /></label>{error && <p className="form-error full-field">{error}</p>}<div className="admin-form-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />} {saving ? 'Recording…' : 'Record & approve'}</button></div></form></section></div>;
+    return (
+        <div className="admin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+            <section className="admin-modal customer-wide-modal" role="dialog" aria-modal="true" aria-label="Record emergency collection">
+                <div className="admin-modal-header">
+                    <div>
+                        <div className="eyebrow">COLLECTION WORKFLOW / M.D. EMERGENCY APPROVAL</div>
+                        <h2>Record doorstep collection</h2>
+                        <p>Approves and records a collection from an unassigned customer in a single step. The entry is created in accepted state and updates the customer's account balance/loan immediately.</p>
+                    </div>
+                    <button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button>
+                </div>
+                <form className="form-grid customer-form" onSubmit={(event) => void submit(event)}>
+                    <FormLegend />
+                    <label>
+                        <span>Collecting agent <Req /></span>
+                        <select value={agentId} onChange={(event) => setAgentId(event.target.value)} required>
+                            <option value="">Select collecting agent</option>
+                            {support.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
+                        </select>
+                    </label>
+                    <label>
+                        <span>Customer <Req /></span>
+                        <select value={customerId} onChange={(event) => { setCustomerId(event.target.value); setAccountId(''); }} required>
+                            <option value="">Select customer</option>
+                            {support.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.label}</option>)}
+                        </select>
+                    </label>
+                    <label>
+                        <span>Collection date <Req /></span>
+                        <input type="date" value={businessDate} onChange={(event) => setBusinessDate(event.target.value)} required />
+                    </label>
+                    <label>
+                        <span>Transaction type <Req /></span>
+                        <select value={productType} onChange={(event) => { setProductType(event.target.value as CollectionProductType); setAccountId(''); }}>
+                            {PRODUCT_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+                        </select>
+                    </label>
+                    <label className="full-field">
+                        <span>{accountField === 'loanId' ? 'Loan number / ID' : 'Account number / ID'} {accountField ? <Req /> : <Opt />}</span>
+                        <input
+                            list="emergency-accounts-list"
+                            value={accountId}
+                            onChange={(event) => setAccountId(event.target.value)}
+                            placeholder={accountField ? (matchingAccounts.length ? `Select or enter (e.g. ${matchingAccounts[0]?.accountNumber})` : 'Enter account or loan number (e.g. DLA0028, SBA0087)') : 'Not required for penalty'}
+                            disabled={!accountField}
+                        />
+                        <datalist id="emergency-accounts-list">
+                            {matchingAccounts.map((acc) => (
+                                <option key={acc.id} value={acc.accountNumber}>
+                                    {acc.accountNumber} · {acc.label}
+                                </option>
+                            ))}
+                        </datalist>
+                        {matchingAccounts.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                                <span style={{ fontSize: '12px', color: 'var(--muted, #64748b)', alignSelf: 'center' }}>Customer's accounts:</span>
+                                {matchingAccounts.map((acc) => (
+                                    <button
+                                        key={acc.id}
+                                        type="button"
+                                        onClick={() => setAccountId(acc.accountNumber)}
+                                        style={{
+                                            padding: '3px 8px',
+                                            borderRadius: '4px',
+                                            fontSize: '11px',
+                                            border: '1px solid var(--border-color, #cbd5e1)',
+                                            background: accountId === acc.accountNumber ? 'var(--color-primary, #0284c7)' : 'transparent',
+                                            color: accountId === acc.accountNumber ? '#fff' : 'inherit',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {acc.accountNumber} ({acc.label})
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {loadingAccounts && <span style={{ fontSize: '11px', color: 'var(--muted, #64748b)' }}>Loading customer accounts…</span>}
+                    </label>
+                    <label>
+                        <span>Amount collected <Req /></span>
+                        <input type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="3000" />
+                    </label>
+                    <label>
+                        <span>Payment mode <Req /></span>
+                        <select value={mode} onChange={(event) => setMode(event.target.value as CollectionMode)}>
+                            {MODES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                        </select>
+                    </label>
+                    <label>
+                        <span>Instrument reference <Opt /></span>
+                        <input value={instrumentRef} onChange={(event) => setInstrumentRef(event.target.value)} placeholder="Cheque / UTR reference" />
+                    </label>
+                    <label>
+                        <span>Remark <Opt /></span>
+                        <input value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="Optional note for the audit trail" />
+                    </label>
+                    <label className="full-field">
+                        <span>Flags</span>
+                        <span className="form-note">Partial marks a short payment that needs an allocation decision; advance marks a payment recorded ahead of schedule.</span>
+                    </label>
+                    <label>
+                        <span>Partial payment <Opt /></span>
+                        <input type="checkbox" checked={isPartial} onChange={(event) => setIsPartial(event.target.checked)} />
+                    </label>
+                    <label>
+                        <span>Advance payment <Opt /></span>
+                        <input type="checkbox" checked={isAdvance} onChange={(event) => setIsAdvance(event.target.checked)} />
+                    </label>
+                    <label className="full-field">
+                        <span>Customer acknowledgement <Opt /></span>
+                        <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
+                    </label>
+                    {error && <p className="form-error full-field">{error}</p>}
+                    <div className="admin-form-actions full-field">
+                        <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button>
+                        <button type="submit" className="primary-button" disabled={saving}>
+                            {saving ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />} {saving ? 'Recording…' : 'Record & approve'}
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    );
 }
 
 // ---------------------------------------------------------------------------
