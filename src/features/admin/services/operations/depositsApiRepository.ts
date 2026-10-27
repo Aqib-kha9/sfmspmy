@@ -408,7 +408,7 @@ function toRecord(view: AccountView, transactions: DepositTransaction[], extras:
         balance,
         openedOn: formatDate(view.openedOn),
         openedOnIso: view.openedOn ?? undefined,
-        maturityDate: formatDate(view.maturityDate),
+        maturityDate: view.maturityDate ? formatDate(view.maturityDate) : undefined,
         maturityDateIso: view.maturityDate ?? undefined,
         lastEntry: last ? last.date : formatDate(view.updatedAt),
         status: statusOf(view.status),

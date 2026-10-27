@@ -190,7 +190,9 @@ export function DepositModal({ mode, record, accountKind = 'all', onClose, onSav
                 <label><span>Product / scheme <Req /></span><select value={productCode} onChange={(event) => selectProduct(event.target.value)} aria-label="Select deposit scheme"><option value="">{products.length ? 'Select a scheme' : 'No active schemes configured'}</option>{products.map((product) => <option key={product.id} value={product.code}>{product.name} · {product.code} · {product.interestRate}%</option>)}</select></label>
                 <label><span>Opening deposit amount <Req /></span><input type="number" min="1" value={openingAmount} onChange={(event) => setOpeningAmount(event.target.value)} placeholder="5000" /></label>
                 <label><span>Opening date <Opt /></span><input type="date" value={openedOn} onChange={(event) => setOpenedOn(event.target.value)} /></label>
-                <label><span>Maturity date (मुदत समाप्ती) {productCode === 'DAILY-180' ? <Req /> : <Opt />}</span><input type="date" value={maturityDate} onChange={(event) => setMaturityDate(event.target.value)} />{productCode === 'DAILY-180' ? <small style={{ fontSize: '11px', color: 'var(--green)' }}>Auto-calculated (+180 days for DAILY-180)</small> : null}</label>
+                {accountKind !== 'savings' ? (
+                    <label><span>Maturity date (मुदत समाप्ती) {productCode === 'DAILY-180' ? <Req /> : <Opt />}</span><input type="date" value={maturityDate} onChange={(event) => setMaturityDate(event.target.value)} />{productCode === 'DAILY-180' ? <small style={{ fontSize: '11px', color: 'var(--green)' }}>Auto-calculated (+180 days for DAILY-180)</small> : null}</label>
+                ) : null}
                 <label><span>Interest rate override (%) <Opt /></span><input type="number" min="0.01" max="25" step="0.01" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} placeholder={selectedProduct ? String(selectedProduct.interestRate) : '4.00'} /></label>
                 <label><span>Payment method <Req /></span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>{depositPaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select></label>
                 <label><span>Instrument reference <Opt /></span><input value={referenceNumber} onChange={(event) => setReferenceNumber(event.target.value)} placeholder="Receipt / UTR / cheque number" /></label>
@@ -578,7 +580,7 @@ export function DepositDetail({
                     <div>
                         <div className="eyebrow">{record.productCode === 'DAILY-180' || record.id.startsWith('DDA') ? 'DAILY DEPOSIT ACCOUNT' : 'SAVINGS ACCOUNT'} / {record.id}</div>
                         <h2>{record.customerName}</h2>
-                        <p>{record.productName || record.accountType} · {record.customerId} · {record.customerPhone}</p>
+                        <p>{record.productName || record.accountType}{record.customerPhone ? ` · ${record.customerPhone}` : ''}</p>
                     </div>
                 </div>
                 <button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button>
@@ -912,8 +914,8 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
                     </tr> : visibleRows.length ? visibleRows.map((row) => <tr key={row.id} onClick={() => { setSelected(row); setModal('detail'); }}>
                         <td>
                             <strong>{row.customerName}</strong>
-                            <span>{row.productName || row.accountType} · {row.customerId}</span>
-                            <small>{row.id} · {row.customerPhone}</small>
+                            <span>{row.productName || row.accountType}</span>
+                            <small>{row.id}{row.customerPhone ? ` · ${row.customerPhone}` : ''}</small>
                         </td>
                         <td className="table-amount">{formatCurrency(row.balance)}</td>
                         <td className="table-muted">
