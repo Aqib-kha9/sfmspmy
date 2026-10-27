@@ -237,13 +237,13 @@ export function DashboardPage() {
                     <div className="bank-hero-main">
                         <div className="bank-hero-label">
                             <Landmark size={18} />
-                            <span>बँकेची एकूण शिल्लक बाकी · Net Treasury Liquidity</span>
+                            <span>पतसंस्थेचा एकूण व्यवसाय · Total Business Portfolio</span>
                         </div>
                         <div className="bank-hero-value">
-                            {formatCurrency(overview.bankTotals.netBankBalance)}
+                            {formatCurrency(overview.bankTotals.totalBusiness ?? (overview.bankTotals.totalDeposits + overview.bankTotals.totalLoansOutstanding))}
                         </div>
                         <div className="bank-hero-sub">
-                            ठेवी आणि कर्ज समायोजनानंतर बँकेची एकूण शिल्लक रक्कम (As of {formatDateHeading(overview.date)})
+                            एकूण ठेवी (₹{((overview.bankTotals.totalDeposits) / 100000).toFixed(2)}L) + एकूण कर्ज येणे (₹{((overview.bankTotals.totalLoansOutstanding) / 100000).toFixed(2)}L) एकत्रित संस्था व्यवसाय (As of {formatDateHeading(overview.date)})
                         </div>
                     </div>
                     <div className="bank-hero-stats">

@@ -39,6 +39,7 @@ export interface BankLoansBreakdown {
 export interface BankTotalsView {
     totalDeposits: number;
     totalLoansOutstanding: number;
+    totalBusiness?: number;
     netBankBalance: number;
     totalAccountsCount: number;
     breakdown: {
