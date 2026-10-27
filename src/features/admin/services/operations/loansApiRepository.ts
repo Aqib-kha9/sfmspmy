@@ -1,5 +1,6 @@
 import { apiClient } from '../../../../lib/api/apiClient';
 import type {
+    AllocationEvent,
     ApproveLoanInput,
     CreateLoanApplicationInput,
     GuarantorInput,
@@ -79,6 +80,7 @@ export type LoanInstallment = {
     agent: string;
     reference?: string;
     status: 'Paid' | 'Pending' | 'Overdue' | 'Partial';
+    allocations?: AllocationEvent[];
 };
 
 export type LoanLifecycle = 'Application' | 'Underwriting' | 'Approved' | 'Disbursed' | 'Active' | 'Overdue' | 'Rescheduled' | 'Settled' | 'Written off' | 'Completed';
@@ -138,7 +140,7 @@ export type LoanRecord = {
     status: Status;
     lifecycle: LoanLifecycle;
     installments: LoanInstallment[];
-    events: Array<{ id: string; type: string; date: string; actor: string; reference: string; note: string }>;
+    events: Array<{ id: string; type: string; date: string; actor: string; reference: string; note: string; metadata?: Record<string, unknown> }>;
 };
 
 export type LoanInput = Pick<LoanRecord, 'customerId' | 'loanType' | 'principal' | 'loanDate' | 'tenureMonths' | 'interestRate' | 'installmentAmount' | 'status'> & Partial<Pick<LoanRecord, 'productCode' | 'purpose' | 'processingFee' | 'documentationFee' | 'insuranceFee' | 'otherCharges' | 'disbursementMethod' | 'disbursementReference' | 'firstDueDate' | 'repaymentFrequency' | 'interestMethod' | 'gracePeriodDays' | 'moratoriumMonths' | 'lateFee' | 'penalInterestRate' | 'incomeSource' | 'monthlyIncome' | 'guarantorName' | 'guarantorPhone' | 'collateralDescription' | 'collateralValue' | 'collateralLtv' | 'collateralReference'>>;
@@ -314,6 +316,13 @@ function humaniseAction(action: string): string {
 /** Reads a human note out of a free-form statement metadata payload. */
 function statementNote(metadata: Record<string, unknown> | null): string {
     if (!metadata) return '';
+    if (metadata.amount && metadata.instalmentsCovered) {
+        const amt = Number(metadata.amount).toLocaleString('en-IN');
+        const count = metadata.instalmentsCovered;
+        const method = metadata.paymentMethod ? String(metadata.paymentMethod).toUpperCase() : 'CASH';
+        const ref = metadata.referenceNumber ? ` · Ref: ${metadata.referenceNumber}` : '';
+        return `Repayment of ₹${amt} via ${method}${ref} covering ${count} installment${Number(count) > 1 ? 's' : ''}`;
+    }
     for (const key of ['reason', 'note', 'comment', 'message', 'description']) {
         const value = metadata[key];
         if (typeof value === 'string' && value.trim()) return value.trim();
@@ -337,7 +346,8 @@ function docNumber(documents: Record<string, unknown>, key: string): number | un
 
 function toInstalments(items: LoanInstalmentView[]): LoanInstallment[] {
     return items.map((view) => {
-        const allocation = view.allocation?.[view.allocation.length - 1];
+        const rawAllocations = Array.isArray(view.allocation) ? view.allocation : [];
+        const allocation = rawAllocations[rawAllocations.length - 1];
         const reference = allocation?.referenceNumber ?? allocation?.sourceCollectionId ?? undefined;
         // The allocation event carries the real settlement method recorded by the
         // backend allocation engine; never invent a counter agent.
@@ -356,6 +366,7 @@ function toInstalments(items: LoanInstalmentView[]): LoanInstallment[] {
             agent: method ?? 'Backend allocation',
             reference,
             status: INSTALMENT_FROM_API[view.status] ?? 'Pending',
+            allocations: rawAllocations,
         };
     });
 }
@@ -369,6 +380,7 @@ function toEvents(statement: LoanStatementView | null): LoanRecord['events'] {
         actor: item.actorStaffName ?? 'System',
         reference: item.entityId ?? item.entityType,
         note: statementNote(item.metadata),
+        metadata: (item.metadata as Record<string, unknown>) ?? undefined,
     }));
 }
 

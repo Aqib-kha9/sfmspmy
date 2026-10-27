@@ -3,10 +3,10 @@
 import { Pagination } from '../../../components/ui/Pagination';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Download, FileText, Filter, Loader2, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Download, FileText, Filter, Loader2, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { loansRepository } from '../services/operations/loansApiRepository';
 import type { LoanInput as LoanRepoInput, LoanRepaymentInput as LoanRepoRepaymentInput, LoanProductView } from '../services/operations/loansApiRepository';
-import type { ApproveLoanInput, LoanPaymentMethod, RescheduleLoanInput, SettleLoanInput, WriteOffLoanInput } from '../../../lib/api/types';
+import type { AllocationEvent, ApproveLoanInput, LoanPaymentMethod, RescheduleLoanInput, SettleLoanInput, WriteOffLoanInput } from '../../../lib/api/types';
 import { customerRepository } from '../../customers/services/customerApiRepository';
 import type { Customer as ApiCustomer } from '../../customers/types/customer.types';
 import type { CustomerOption } from '../../customers/services/customerRepository';
@@ -35,7 +35,201 @@ export type LoanInstallment = {
     agent: string;
     reference?: string;
     status: 'Paid' | 'Pending' | 'Overdue' | 'Partial';
+    allocations?: AllocationEvent[];
 };
+
+export interface LoanRepaymentBatch {
+    batchKey: string;
+    receiptNumber: string;
+    date: string;
+    paymentMethod: string;
+    reference?: string;
+    totalAmount: number;
+    principalAmount: number;
+    interestAmount: number;
+    penaltyAmount: number;
+    feesAmount: number;
+    installmentsCoveredCount: number;
+    coveredSummary: string;
+    fullSettledRange: string;
+    partialSettledDetails?: {
+        installmentId: string;
+        paidHere: number;
+        remainingDue: number;
+        dueDate: string;
+    };
+    coveredInstallmentIds: Set<string>;
+}
+
+export function computeLoanRepaymentBatches(record: LoanRecord): LoanRepaymentBatch[] {
+    const batchesMap = new Map<string, {
+        date: string;
+        paymentMethod: string;
+        reference?: string;
+        totalAmount: number;
+        principalAmount: number;
+        interestAmount: number;
+        penaltyAmount: number;
+        feesAmount: number;
+        installments: Array<{
+            id: string;
+            num: number;
+            amountPaid: number;
+            isFull: boolean;
+            remainingOnEmi: number;
+            dueDate: string;
+        }>;
+    }>();
+
+    for (const inst of record.installments) {
+        const num = parseInt(inst.id.replace(/\D/g, ''), 10) || 0;
+        const remainingOnEmi = Math.max(0, inst.amount - (inst.paidAmount ?? 0));
+        const isFull = inst.status === 'Paid' || remainingOnEmi <= 0.01;
+
+        if (inst.allocations && inst.allocations.length > 0) {
+            for (const alloc of inst.allocations) {
+                const date = alloc.paidOn || inst.paidDate || 'Recorded';
+                const method = (alloc.paymentMethod ? alloc.paymentMethod.replace(/_/g, ' ') : (inst.paidMethod || 'Cash')).toUpperCase();
+                const ref = alloc.referenceNumber || alloc.sourceCollectionId || inst.reference || 'CASH';
+                const key = `${date}_${method}_${ref}`;
+
+                const amt = Number(alloc.amount) || 0;
+                const p = Number(alloc.components?.principal) || 0;
+                const i = Number(alloc.components?.interest) || 0;
+                const pen = Number(alloc.components?.penalty) || 0;
+                const f = Number(alloc.components?.fees) || 0;
+
+                let existing = batchesMap.get(key);
+                if (!existing) {
+                    existing = {
+                        date,
+                        paymentMethod: method,
+                        reference: ref,
+                        totalAmount: 0,
+                        principalAmount: 0,
+                        interestAmount: 0,
+                        penaltyAmount: 0,
+                        feesAmount: 0,
+                        installments: [],
+                    };
+                    batchesMap.set(key, existing);
+                }
+
+                existing.totalAmount += amt;
+                existing.principalAmount += p;
+                existing.interestAmount += i;
+                existing.penaltyAmount += pen;
+                existing.feesAmount += f;
+                existing.installments.push({
+                    id: inst.id,
+                    num,
+                    amountPaid: amt,
+                    isFull,
+                    remainingOnEmi,
+                    dueDate: inst.dueDate,
+                });
+            }
+        } else if ((inst.status === 'Paid' || inst.status === 'Partial') && (inst.paidAmount ?? 0) > 0) {
+            const date = inst.paidDate || 'Recorded';
+            const method = (inst.paidMethod || 'CASH').toUpperCase();
+            const ref = inst.reference || 'CASH';
+            const key = `${date}_${method}_${ref}`;
+
+            const amt = inst.paidAmount || inst.amount;
+            const p = inst.principal;
+            const i = inst.interest;
+            const pen = inst.penalty || 0;
+            const f = inst.fees || 0;
+
+            let existing = batchesMap.get(key);
+            if (!existing) {
+                existing = {
+                    date,
+                    paymentMethod: method,
+                    reference: ref,
+                    totalAmount: 0,
+                    principalAmount: 0,
+                    interestAmount: 0,
+                    penaltyAmount: 0,
+                    feesAmount: 0,
+                    installments: [],
+                };
+                batchesMap.set(key, existing);
+            }
+
+            existing.totalAmount += amt;
+            existing.principalAmount += p;
+            existing.interestAmount += i;
+            existing.penaltyAmount += pen;
+            existing.feesAmount += f;
+            existing.installments.push({
+                id: inst.id,
+                num,
+                amountPaid: amt,
+                isFull,
+                remainingOnEmi,
+                dueDate: inst.dueDate,
+            });
+        }
+    }
+
+    const list: LoanRepaymentBatch[] = [];
+    for (const [key, b] of batchesMap.entries()) {
+        b.installments.sort((a, b) => a.num - b.num);
+        const fulls = b.installments.filter((x) => x.isFull);
+        const partials = b.installments.filter((x) => !x.isFull);
+
+        let fullRangeStr = '';
+        const firstFull = fulls[0];
+        const lastFull = fulls[fulls.length - 1];
+        if (firstFull && lastFull) {
+            const minNum = firstFull.num;
+            const maxNum = lastFull.num;
+            fullRangeStr = minNum === maxNum ? `LNI-${minNum}` : `LNI-${minNum} to LNI-${maxNum}`;
+        }
+
+        const partial = partials[0];
+        let coveredSummary = '';
+        if (firstFull && partial) {
+            coveredSummary = `Covered ${b.installments.length} EMIs: ${fullRangeStr} Full (${fulls.length} EMIs) + ${partial.id} Partial (₹${partial.amountPaid.toFixed(2)} credited, ₹${partial.remainingOnEmi.toFixed(2)} remaining)`;
+        } else if (firstFull) {
+            coveredSummary = `Covered ${fulls.length} EMI${fulls.length > 1 ? 's' : ''} in full (${fullRangeStr})`;
+        } else if (partial) {
+            coveredSummary = `Partial deduction on ${partial.id}: ₹${partial.amountPaid.toFixed(2)} credited, ₹${partial.remainingOnEmi.toFixed(2)} remaining`;
+        }
+
+        const coveredSet = new Set(b.installments.map((x) => x.id));
+        const receiptNo = b.reference && b.reference !== 'CASH'
+            ? b.reference
+            : `RCP-${record.id}-${b.date.replace(/\D/g, '') || '01'}`;
+
+        list.push({
+            batchKey: key,
+            receiptNumber: receiptNo,
+            date: b.date,
+            paymentMethod: b.paymentMethod,
+            reference: b.reference,
+            totalAmount: Math.round(b.totalAmount * 100) / 100,
+            principalAmount: Math.round(b.principalAmount * 100) / 100,
+            interestAmount: Math.round(b.interestAmount * 100) / 100,
+            penaltyAmount: Math.round(b.penaltyAmount * 100) / 100,
+            feesAmount: Math.round(b.feesAmount * 100) / 100,
+            installmentsCoveredCount: b.installments.length,
+            coveredSummary,
+            fullSettledRange: fullRangeStr,
+            partialSettledDetails: partial ? {
+                installmentId: partial.id,
+                paidHere: partial.amountPaid,
+                remainingDue: partial.remainingOnEmi,
+                dueDate: partial.dueDate,
+            } : undefined,
+            coveredInstallmentIds: coveredSet,
+        });
+    }
+
+    list.sort((a, b) => b.date.localeCompare(a.date));
+    return list;
+}
 
 export type LoanLifecycle = 'Application' | 'Underwriting' | 'Approved' | 'Disbursed' | 'Active' | 'Overdue' | 'Rescheduled' | 'Settled' | 'Written off' | 'Completed';
 
@@ -1086,6 +1280,45 @@ export function LoanDetail({
     const [disburseOpen, setDisburseOpen] = useState(false);
     const [rescheduleOpen, setRescheduleOpen] = useState(false);
     const [lifecycleDialog, setLifecycleDialog] = useState<'Settled' | 'Written off' | null>(null);
+
+    const [scheduleFilter, setScheduleFilter] = useState<'all' | 'paid' | 'partial' | 'pending' | 'overdue'>('all');
+    const [schedulePage, setSchedulePage] = useState(1);
+    const [showAllSchedule, setShowAllSchedule] = useState(false);
+    const SCHEDULE_PAGE_SIZE = 50;
+
+    const repaymentBatches = useMemo(() => computeLoanRepaymentBatches(record), [record]);
+    const batchByInstallmentId = useMemo(() => {
+        const map = new Map<string, LoanRepaymentBatch>();
+        for (const b of repaymentBatches) {
+            for (const instId of b.coveredInstallmentIds) {
+                map.set(instId, b);
+            }
+        }
+        return map;
+    }, [repaymentBatches]);
+
+    const paidCount = useMemo(() => record.installments.filter((i) => i.status === 'Paid').length, [record.installments]);
+    const partialCount = useMemo(() => record.installments.filter((i) => i.status === 'Partial').length, [record.installments]);
+    const pendingCount = useMemo(() => record.installments.filter((i) => i.status === 'Pending').length, [record.installments]);
+    const overdueCount = useMemo(() => record.installments.filter((i) => i.status === 'Overdue').length, [record.installments]);
+
+    const filteredInstallments = useMemo(() => {
+        if (scheduleFilter === 'paid') return record.installments.filter((i) => i.status === 'Paid');
+        if (scheduleFilter === 'partial') return record.installments.filter((i) => i.status === 'Partial');
+        if (scheduleFilter === 'pending') return record.installments.filter((i) => i.status === 'Pending');
+        if (scheduleFilter === 'overdue') return record.installments.filter((i) => i.status === 'Overdue');
+        return record.installments;
+    }, [record.installments, scheduleFilter]);
+
+    const totalSchedulePages = Math.ceil(filteredInstallments.length / SCHEDULE_PAGE_SIZE) || 1;
+    const pagedInstallments = useMemo(() => {
+        if (showAllSchedule || filteredInstallments.length <= SCHEDULE_PAGE_SIZE) {
+            return filteredInstallments;
+        }
+        const start = (schedulePage - 1) * SCHEDULE_PAGE_SIZE;
+        return filteredInstallments.slice(start, start + SCHEDULE_PAGE_SIZE);
+    }, [filteredInstallments, schedulePage, showAllSchedule]);
+
     const pending = record.installments.filter((item) => item.status !== 'Paid').length;
     const charges = (record.processingFee ?? 0) + (record.documentationFee ?? 0) + (record.insuranceFee ?? 0) + (record.otherCharges ?? 0);
     const canApproveStage = record.lifecycle === 'Application' || record.lifecycle === 'Underwriting';
@@ -1137,22 +1370,239 @@ export function LoanDetail({
                 </div>
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Pricing, controls and disbursement</h3><p>Terms persisted with the loan contract and schedule.</p></div></div><div className="customer-detail-grid loan-detail-grid"><div><span>Product / purpose</span><strong>{record.productCode ?? 'Not configured'} · {record.purpose || 'Not captured'}</strong></div><div><span>Fees and charges</span><strong>₹{charges.toLocaleString('en-IN')}</strong></div><div><span>Processing / documentation</span><strong>₹{(record.processingFee ?? 0).toLocaleString('en-IN')} · ₹{(record.documentationFee ?? 0).toLocaleString('en-IN')}</strong></div><div><span>Insurance / other charges</span><strong>₹{(record.insuranceFee ?? 0).toLocaleString('en-IN')} · ₹{(record.otherCharges ?? 0).toLocaleString('en-IN')}</strong></div><div><span>First due date</span><strong>{record.firstDueDate ?? record.nextDueDate ?? record.loanDate}</strong></div><div><span>Grace / moratorium</span><strong>{record.gracePeriodDays ?? 0} days · {record.moratoriumMonths ?? 0} months</strong></div><div><span>Late fee / penal interest</span><strong>₹{(record.lateFee ?? 0).toLocaleString('en-IN')} · {record.penalInterestRate ?? 0}%</strong></div><div><span>Disbursement</span><strong>{record.disbursementMethod ?? 'Bank transfer'}{record.disbursementReference ? ` · ${record.disbursementReference}` : ''}</strong></div></div></section>
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Borrower and security</h3><p>Underwriting evidence, guarantor details and collateral custody fields.</p></div></div><div className="customer-detail-grid loan-detail-grid"><div><span>Income source</span><strong>{record.incomeSource || 'Not captured'}{record.monthlyIncome ? ` · ₹${record.monthlyIncome.toLocaleString('en-IN')} / month` : ''}</strong></div><div><span>Guarantor</span><strong>{record.guarantorName || 'Not captured'}{record.guarantorPhone ? ` · ${record.guarantorPhone}` : ''}</strong></div><div><span>Collateral</span><strong>{record.collateralDescription || 'Not captured'}</strong></div><div><span>Collateral value / LTV</span><strong>{record.collateralValue ? `₹${record.collateralValue.toLocaleString('en-IN')}` : 'Not captured'} · {record.collateralLtv ?? 0}%</strong></div></div></section>
+
+                {/* DEDICATED REPAYMENT RECEIPTS & ALLOCATION HISTORY SECTION */}
+                <section className="customer-subsection" style={{ marginBottom: '24px' }}>
+                    <div className="customer-section-heading">
+                        <div>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Receipt size={18} style={{ color: '#059669' }} />
+                                <span>Repayment Receipts & Collection History (जमा पावत्या आणि हप्ता कपात वाटप)</span>
+                            </h3>
+                            <p>Official collection receipts recorded against this loan and how each payment was deducted across installments.</p>
+                        </div>
+                        <span className="badge" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '4px 10px', borderRadius: '999px', fontWeight: 600, fontSize: '12px' }}>
+                            {repaymentBatches.length} {repaymentBatches.length === 1 ? 'Receipt Record' : 'Receipt Records'}
+                        </span>
+                    </div>
+
+                    {repaymentBatches.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '12px' }}>
+                            {repaymentBatches.map((batch) => (
+                                <div
+                                    key={batch.batchKey}
+                                    style={{
+                                        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '10px',
+                                        padding: '16px 20px',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                                        <div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                                                <span style={{ fontWeight: 700, fontSize: '15px', color: '#0f172a' }}>
+                                                    Receipt #{batch.receiptNumber}
+                                                </span>
+                                                <span style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                                    {batch.paymentMethod}
+                                                </span>
+                                                <span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                                    <CheckCircle2 size={12} /> Successfully Allocated
+                                                </span>
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#64748b' }}>
+                                                Collected on <strong>{batch.date}</strong> · Reference: <strong>{batch.reference || 'CASH'}</strong>
+                                            </div>
+                                        </div>
+
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#64748b', fontWeight: 600 }}>Total Collected</div>
+                                                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>
+                                                    ₹{batch.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="primary-button"
+                                                style={{
+                                                    padding: '8px 14px',
+                                                    fontSize: '0.82rem',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                    borderRadius: '6px',
+                                                    background: '#059669',
+                                                    borderColor: '#059669',
+                                                    color: '#ffffff',
+                                                    cursor: 'pointer',
+                                                    fontWeight: 600,
+                                                }}
+                                                onClick={() => {
+                                                    onViewReceipt({
+                                                        receiptNumber: batch.receiptNumber,
+                                                        date: batch.date,
+                                                        time: '12:00 PM',
+                                                        customerName: record.customerName,
+                                                        customerId: record.customerId,
+                                                        customerPhone: record.customerPhone,
+                                                        accountNumber: record.id,
+                                                        productName: `${record.loanType}${record.productCode ? ` (${record.productCode})` : ''}`,
+                                                        productType: 'Loan',
+                                                        amount: batch.totalAmount,
+                                                        paymentMethod: batch.paymentMethod,
+                                                        agentOrCashier: 'Collection Agent / Branch Cashier',
+                                                        reference: batch.reference,
+                                                        outstandingAfter: record.outstandingAmount,
+                                                        narration: `Repayment of ₹${batch.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} via ${batch.paymentMethod}. ${batch.coveredSummary}`,
+                                                        branch: record.branchName,
+                                                    });
+                                                }}
+                                            >
+                                                <FileText size={15} />
+                                                <span>View / Print Receipt (₹{batch.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', marginTop: '14px', padding: '10px 14px', background: '#f1f5f9', borderRadius: '8px' }}>
+                                        <div>
+                                            <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Disbursed Principal Paid</span>
+                                            <strong style={{ fontSize: '13px', color: '#0f172a' }}>₹{batch.principalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                        </div>
+                                        <div>
+                                            <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Interest Component Paid</span>
+                                            <strong style={{ fontSize: '13px', color: '#0f172a' }}>₹{batch.interestAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                        </div>
+                                        <div>
+                                            <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Penalty / Fees</span>
+                                            <strong style={{ fontSize: '13px', color: '#0f172a' }}>₹{(batch.penaltyAmount + batch.feesAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                        </div>
+                                        <div>
+                                            <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Installments Covered</span>
+                                            <strong style={{ fontSize: '13px', color: '#0f172a' }}>{batch.installmentsCoveredCount} installments</strong>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ marginTop: '12px', padding: '10px 12px', background: '#f8fafc', borderLeft: '4px solid #3b82f6', borderRadius: '4px', fontSize: '12.5px', color: '#334155' }}>
+                                        <div style={{ fontWeight: 600, color: '#1e3a8a', marginBottom: '2px' }}>
+                                            Deduction & Installment Coverage Breakdown (हप्ता कपात तपशील):
+                                        </div>
+                                        <div>{batch.coveredSummary}</div>
+                                        {batch.partialSettledDetails && (
+                                            <div style={{ marginTop: '6px', fontSize: '12px', color: '#b45309', background: '#fef3c7', padding: '4px 8px', borderRadius: '4px', display: 'inline-block' }}>
+                                                ⚠️ Note: On {batch.partialSettledDetails.installmentId}, ₹{batch.partialSettledDetails.paidHere.toFixed(2)} was credited, leaving ₹{batch.partialSettledDetails.remainingDue.toFixed(2)} remaining balance due on {batch.partialSettledDetails.dueDate} (Next Due Date).
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontSize: '13px', marginTop: '10px' }}>
+                            No repayment receipts recorded on this loan account yet.
+                        </div>
+                    )}
+                </section>
+
+                {/* 365 INSTALLMENT SCHEDULE & ALLOCATION HISTORY */}
                 <section className="customer-subsection">
                     <div className="customer-section-heading">
-                        <div><h3>Repayment schedule and allocation history</h3><p>Each receipt is allocated across principal, interest, penalty and fees.</p></div>
+                        <div>
+                            <h3>Repayment schedule and allocation history</h3>
+                            <p>Each receipt is allocated across principal, interest, penalty and fees.</p>
+                        </div>
                         <span>{record.installments.length} entries</span>
                     </div>
-                    {record.installments.length ? (
+
+                    {/* Quick filter tabs */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', margin: '14px 0 16px', flexWrap: 'wrap' }}>
+                        <div role="tablist" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            {[
+                                { key: 'all', label: `All (${record.installments.length})` },
+                                { key: 'paid', label: `Paid (${paidCount})`, textColor: '#15803d' },
+                                { key: 'partial', label: `Partial (${partialCount})`, textColor: '#b45309' },
+                                { key: 'pending', label: `Scheduled (${pendingCount})` },
+                                { key: 'overdue', label: `Overdue (${overdueCount})`, textColor: '#b91c1c' },
+                            ].map((tab) => (
+                                <button
+                                    key={tab.key}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={scheduleFilter === tab.key}
+                                    onClick={() => { setScheduleFilter(tab.key as any); setSchedulePage(1); }}
+                                    style={{
+                                        padding: '5px 12px',
+                                        borderRadius: '999px',
+                                        border: '1px solid',
+                                        borderColor: scheduleFilter === tab.key ? 'var(--primary, #1f6feb)' : 'var(--border, #d7dbe0)',
+                                        background: scheduleFilter === tab.key ? 'var(--primary, #1f6feb)' : '#ffffff',
+                                        color: scheduleFilter === tab.key ? '#ffffff' : (tab.textColor ?? 'inherit'),
+                                        fontSize: '12.5px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                    }}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {filteredInstallments.length > SCHEDULE_PAGE_SIZE && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                                <button
+                                    type="button"
+                                    className="secondary-button"
+                                    style={{ padding: '3px 8px', fontSize: '11px' }}
+                                    onClick={() => setShowAllSchedule(!showAllSchedule)}
+                                >
+                                    {showAllSchedule ? `Show paginated (50/page)` : `Show all ${filteredInstallments.length} entries`}
+                                </button>
+                                {!showAllSchedule && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <button
+                                            type="button"
+                                            className="secondary-button"
+                                            style={{ padding: '3px 8px', fontSize: '11px' }}
+                                            disabled={schedulePage <= 1}
+                                            onClick={() => setSchedulePage(schedulePage - 1)}
+                                        >
+                                            Prev
+                                        </button>
+                                        <span style={{ fontWeight: 600 }}>{schedulePage} / {totalSchedulePages}</span>
+                                        <button
+                                            type="button"
+                                            className="secondary-button"
+                                            style={{ padding: '3px 8px', fontSize: '11px' }}
+                                            disabled={schedulePage >= totalSchedulePages}
+                                            onClick={() => setSchedulePage(schedulePage + 1)}
+                                        >
+                                            Next
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {filteredInstallments.length ? (
                         <div className="customer-transaction-list">
-                            {record.installments.map((item) => {
+                            {pagedInstallments.map((item) => {
                                 const isPartial = item.status === 'Partial';
                                 const isPaid = item.status === 'Paid';
                                 const isOverdue = item.status === 'Overdue';
                                 const remainingOnEmi = Math.max(0, item.amount - (item.paidAmount ?? 0));
+                                const batch = batchByInstallmentId.get(item.id);
+
                                 return (
-                                    <div className="customer-transaction-row" key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                    <div className="customer-transaction-row" key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                                        <div style={{ flex: 1, minWidth: '240px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px', flexWrap: 'wrap' }}>
                                                 <strong>{item.id}</strong>
                                                 <span style={{
                                                     fontSize: '11px',
@@ -1164,16 +1614,55 @@ export function LoanDetail({
                                                 }}>
                                                     {isPaid ? 'Paid' : isPartial ? `Partial (Paid ₹${(item.paidAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })})` : isOverdue ? 'Overdue' : 'Scheduled'}
                                                 </span>
+                                                {isPaid && (
+                                                    <span style={{
+                                                        fontSize: '11px',
+                                                        padding: '2px 7px',
+                                                        borderRadius: '4px',
+                                                        fontWeight: 500,
+                                                        background: '#ecfdf5',
+                                                        color: '#047857',
+                                                        border: '1px solid #a7f3d0',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '3px',
+                                                    }}>
+                                                        <CheckCircle2 size={11} />
+                                                        {batch ? `Deducted from ₹${batch.totalAmount.toLocaleString('en-IN')} Receipt (${batch.reference || 'CASH'})` : 'Settled'}
+                                                    </span>
+                                                )}
                                             </div>
-                                            <span style={{ fontSize: '12px', color: 'var(--muted, #64748b)' }}>
+                                            <div style={{ fontSize: '12px', color: 'var(--muted, #64748b)' }}>
                                                 Due {item.dueDate}
                                                 {item.paidDate ? ` · Paid ${item.paidDate}` : ''}
                                                 {isPartial ? ` · Remaining on EMI: ₹${remainingOnEmi.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : ''}
-                                            </span>
+                                            </div>
+
+                                            {isPartial && (
+                                                <div style={{
+                                                    marginTop: '6px',
+                                                    padding: '6px 10px',
+                                                    borderRadius: '6px',
+                                                    background: '#fffbeb',
+                                                    border: '1px solid #fde68a',
+                                                    fontSize: '11.5px',
+                                                }}>
+                                                    <div style={{ fontWeight: 600, color: '#92400e', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        <AlertTriangle size={12} />
+                                                        <span>Partial Deduction: ₹{(item.paidAmount ?? 0).toFixed(2)} applied {batch ? `from ₹${batch.totalAmount.toLocaleString('en-IN')} payment (${batch.date})` : ''}</span>
+                                                    </div>
+                                                    <div style={{ marginTop: '2px', display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                                                        <span style={{ color: '#059669', fontWeight: 600 }}>Credited: ₹{(item.paidAmount ?? 0).toFixed(2)}</span>
+                                                        <span style={{ color: '#dc2626', fontWeight: 700 }}>Remaining Balance: ₹{remainingOnEmi.toFixed(2)}</span>
+                                                        <span style={{ color: '#64748b' }}>Due date: {item.dueDate} (Next Due)</span>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
+
                                         <div style={{ textAlign: 'right' }}>
                                             <b>₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</b>
-                                            <small>
+                                            <small style={{ display: 'block' }}>
                                                 {isPartial ? (
                                                     <>Paid: ₹{(item.paidAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} · Remaining: ₹{remainingOnEmi.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</>
                                                 ) : (
@@ -1185,6 +1674,7 @@ export function LoanDetail({
                                                 {item.reference ? ` · Ref: ${item.reference}` : ''}
                                             </small>
                                         </div>
+
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <StatusPill status={isPaid ? 'Completed' : isOverdue ? 'Overdue' : isPartial ? 'Review' : 'Pending'} />
                                             {(isPaid || isPartial) ? (
@@ -1194,26 +1684,47 @@ export function LoanDetail({
                                                     style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        onViewReceipt({
-                                                            receiptNumber: item.reference || `LN-RCT-${item.id}`,
-                                                            date: item.paidDate || item.dueDate,
-                                                            time: '12:00 PM',
-                                                            customerName: record.customerName,
-                                                            customerId: record.customerId,
-                                                            customerPhone: record.customerPhone,
-                                                            accountNumber: record.id,
-                                                            productName: `${record.loanType}${record.productCode ? ` (${record.productCode})` : ''}`,
-                                                            productType: 'Loan',
-                                                            amount: item.paidAmount || item.amount,
-                                                            paymentMethod: item.paidMethod || 'Cash',
-                                                            agentOrCashier: item.agent || 'Branch Counter',
-                                                            reference: item.reference,
-                                                            outstandingAfter: record.outstandingAmount,
-                                                            narration: `Repayment for installment #${item.id} (Paid: ₹${item.paidAmount || item.amount})`,
-                                                            branch: record.branchName,
-                                                        });
+                                                        if (batch) {
+                                                            onViewReceipt({
+                                                                receiptNumber: batch.receiptNumber,
+                                                                date: batch.date,
+                                                                time: '12:00 PM',
+                                                                customerName: record.customerName,
+                                                                customerId: record.customerId,
+                                                                customerPhone: record.customerPhone,
+                                                                accountNumber: record.id,
+                                                                productName: `${record.loanType}${record.productCode ? ` (${record.productCode})` : ''}`,
+                                                                productType: 'Loan',
+                                                                amount: batch.totalAmount,
+                                                                paymentMethod: batch.paymentMethod,
+                                                                agentOrCashier: 'Collection Agent / Branch Cashier',
+                                                                reference: batch.reference,
+                                                                outstandingAfter: record.outstandingAmount,
+                                                                narration: `Repayment of ₹${batch.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} via ${batch.paymentMethod}. ${batch.coveredSummary}. (Viewing installment #${item.id})`,
+                                                                branch: record.branchName,
+                                                            });
+                                                        } else {
+                                                            onViewReceipt({
+                                                                receiptNumber: item.reference || `LN-RCT-${item.id}`,
+                                                                date: item.paidDate || item.dueDate,
+                                                                time: '12:00 PM',
+                                                                customerName: record.customerName,
+                                                                customerId: record.customerId,
+                                                                customerPhone: record.customerPhone,
+                                                                accountNumber: record.id,
+                                                                productName: `${record.loanType}${record.productCode ? ` (${record.productCode})` : ''}`,
+                                                                productType: 'Loan',
+                                                                amount: item.paidAmount || item.amount,
+                                                                paymentMethod: item.paidMethod || 'Cash',
+                                                                agentOrCashier: item.agent || 'Branch Counter',
+                                                                reference: item.reference,
+                                                                outstandingAfter: record.outstandingAmount,
+                                                                narration: `Repayment for installment #${item.id} (Paid: ₹${item.paidAmount || item.amount})`,
+                                                                branch: record.branchName,
+                                                            });
+                                                        }
                                                     }}
-                                                    title="View / print official loan repayment receipt"
+                                                    title="View / print official loan collection receipt"
                                                 >
                                                     <FileText size={13} /> Receipt
                                                 </button>
@@ -1224,7 +1735,7 @@ export function LoanDetail({
                             })}
                         </div>
                     ) : (
-                        <p className="empty-state">No schedule entries recorded on the backend yet.</p>
+                        <p className="empty-state">No schedule entries found for the selected filter.</p>
                     )}
                 </section>
                 <section className="customer-subsection"><div className="customer-section-heading"><div><h3>Lifecycle and audit trail</h3><p>Approval, disbursement, delinquency, restructuring and closure events.</p></div><span>{record.events.length} events</span></div>{record.events.length ? <div className="customer-transaction-list">{record.events.map((event) => <div className="customer-transaction-row" key={event.id}><div><strong>{event.type}</strong><span>{event.date} · {event.actor}</span></div><div><b>{event.reference}</b><small>{event.note}</small></div></div>)}</div> : <p className="empty-state">No lifecycle or audit events recorded on the backend yet.</p>}</section>
@@ -1303,23 +1814,41 @@ export function LoanStatementModal({
             status: 'Completed',
         });
 
-        // Paid installments / repayments
-        record.installments.forEach((inst) => {
-            if (inst.status === 'Paid') {
+        // Repayments: show collection batches with full breakdown or fallback to instalments
+        const batches = computeLoanRepaymentBatches(record);
+        if (batches.length > 0) {
+            batches.forEach((b) => {
                 list.push({
-                    id: inst.id,
-                    date: inst.paidDate || inst.dueDate,
-                    description: `Repayment Installment #${inst.id} (P: ₹${inst.principal}, I: ₹${inst.interest})`,
-                    reference: inst.reference,
-                    receiptNumber: inst.reference || `RCT-${inst.id}`,
-                    credit: inst.paidAmount || inst.amount,
+                    id: b.receiptNumber,
+                    date: b.date,
+                    description: `Loan Repayment via ${b.paymentMethod} (Ref: ${b.reference || b.receiptNumber}) · ${b.coveredSummary}`,
+                    reference: b.reference,
+                    receiptNumber: b.receiptNumber,
+                    credit: b.totalAmount,
                     balance: record.outstandingAmount,
-                    paymentMethod: inst.paidMethod || 'Cash',
-                    agentOrCashier: inst.agent || 'Branch Counter',
+                    paymentMethod: b.paymentMethod,
+                    agentOrCashier: 'Collection Agent / Branch Cashier',
                     status: 'Completed',
                 });
-            }
-        });
+            });
+        } else {
+            record.installments.forEach((inst) => {
+                if (inst.status === 'Paid' || inst.status === 'Partial') {
+                    list.push({
+                        id: inst.id,
+                        date: inst.paidDate || inst.dueDate,
+                        description: `Repayment Installment #${inst.id} (P: ₹${inst.principal}, I: ₹${inst.interest}${inst.status === 'Partial' ? ` · Partial paid ₹${inst.paidAmount}` : ''})`,
+                        reference: inst.reference,
+                        receiptNumber: inst.reference || `RCT-${inst.id}`,
+                        credit: inst.paidAmount || inst.amount,
+                        balance: record.outstandingAmount,
+                        paymentMethod: inst.paidMethod || 'Cash',
+                        agentOrCashier: inst.agent || 'Branch Counter',
+                        status: 'Completed',
+                    });
+                }
+            });
+        }
 
         // Other events
         events.forEach((evt) => {
