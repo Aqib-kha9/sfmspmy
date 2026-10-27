@@ -51,7 +51,7 @@ export type DepositRecord = {
     customerId: string;
     customerName: string;
     customerPhone: string;
-    accountType: 'Regular savings' | 'Fixed deposit' | 'Recurring deposit';
+    accountType: 'Regular savings' | 'Doorstep savings' | 'Daily deposit' | 'Fixed deposit' | 'Recurring deposit';
     openingAmount: number;
     balance: number;
     openedOn: string;
@@ -319,9 +319,19 @@ function statusOf(status: SavingsAccountStatus): Status {
 }
 
 function accountTypeOf(view: AccountView): DepositRecord['accountType'] {
+    const code = (view.productCode || '').toUpperCase();
+    if (code === 'DAILY-180' || view.accountNumber.startsWith('DDA')) {
+        return 'Daily deposit';
+    }
+    if (code === 'SAV-DLY') {
+        return 'Doorstep savings';
+    }
+    if (code === 'SAV-STD') {
+        return 'Regular savings';
+    }
     const haystack = `${view.productName} ${view.productCode}`.toLowerCase();
-    if (haystack.includes('fixed') || haystack.includes('fd')) return 'Fixed deposit';
-    if (haystack.includes('recurring') || haystack.includes('rd')) return 'Recurring deposit';
+    if (haystack.includes('recurring') || /\brd\b/.test(haystack)) return 'Recurring deposit';
+    if (haystack.includes('fixed') || /\bfd\b/.test(haystack)) return 'Fixed deposit';
     return 'Regular savings';
 }
 

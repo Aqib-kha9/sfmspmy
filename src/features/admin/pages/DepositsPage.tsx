@@ -578,7 +578,7 @@ export function DepositDetail({
                     <div>
                         <div className="eyebrow">{record.productCode === 'DAILY-180' || record.id.startsWith('DDA') ? 'DAILY DEPOSIT ACCOUNT' : 'SAVINGS ACCOUNT'} / {record.id}</div>
                         <h2>{record.customerName}</h2>
-                        <p>{record.accountType} · {record.customerId} · {record.customerPhone}</p>
+                        <p>{record.productName || record.accountType} · {record.customerId} · {record.customerPhone}</p>
                     </div>
                 </div>
                 <button className="icon-button" onClick={onClose} aria-label="Close dialog">×</button>
@@ -729,7 +729,7 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
     };
 
     const kindRows = useMemo(() => depositRows.filter(matchesKind), [depositRows, accountKind]);
-    const filteredRows = kindRows.filter((row) => withinRange(row) && `${row.id} ${row.customerId} ${row.customerName} ${row.customerPhone} ${row.accountType} ${row.productCode ?? ''} ${row.branch ?? ''} ${row.transactions.map((transaction) => `${transaction.id} ${transaction.agent} ${transaction.reference}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()) && (statusFilter === 'All' || row.status === statusFilter));
+    const filteredRows = kindRows.filter((row) => withinRange(row) && `${row.id} ${row.customerId} ${row.customerName} ${row.customerPhone} ${row.productName ?? ''} ${row.accountType} ${row.productCode ?? ''} ${row.branch ?? ''} ${row.transactions.map((transaction) => `${transaction.id} ${transaction.agent} ${transaction.reference}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()) && (statusFilter === 'All' || row.status === statusFilter));
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
     const currentPage = Math.min(page, totalPages);
     const visibleRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -912,7 +912,7 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
                     </tr> : visibleRows.length ? visibleRows.map((row) => <tr key={row.id} onClick={() => { setSelected(row); setModal('detail'); }}>
                         <td>
                             <strong>{row.customerName}</strong>
-                            <span>{row.accountType} · {row.customerId}</span>
+                            <span>{row.productName || row.accountType} · {row.customerId}</span>
                             <small>{row.id} · {row.customerPhone}</small>
                         </td>
                         <td className="table-amount">{formatCurrency(row.balance)}</td>
