@@ -702,7 +702,7 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
         let active = true;
         setLoading(true);
         depositsRepository
-            .list()
+            .list({ limit: 500 })
             .then((rows) => { if (active) setDepositRows(rows); })
             .catch((reason) => { if (active) notify(messageFor(reason, 'Unable to load deposit accounts from the backend.')); })
             .finally(() => { if (active) setLoading(false); });
@@ -735,8 +735,12 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
     const currentPage = Math.min(page, totalPages);
     const visibleRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-    const totalBalance = kindRows.reduce((total, row) => total + row.balance, 0);
-    const entriesToday = kindRows.flatMap((row) => row.transactions).filter((transaction) => transaction.date === today).length;
+    const totalBalance = Math.round(kindRows.reduce((total, row) => total + row.balance, 0) * 100) / 100;
+    const todayTransactions = kindRows.flatMap((row) => row.transactions).filter((transaction) => transaction.date === today);
+    const entriesToday = todayTransactions.length;
+    const todayCollected = todayTransactions
+        .filter((t) => t.type === 'Deposit entry')
+        .reduce((sum, t) => sum + t.amount, 0);
     const reviewCount = kindRows.filter((row) => row.status === 'Review' || row.status === 'Pending').length;
     const activeCount = kindRows.filter((row) => row.status === 'Active').length;
     // Exports exactly the backend-sourced rows currently on screen — no placeholder payload.
@@ -866,8 +870,9 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
             ? 'Manage daily deposit (दैनिक ठेव - DD) collections, 180-day accounts and statements.'
             : 'Manage deposit accounts, customer-linked entries, balances and statements.';
     const openButtonLabel = isSavingsOnly ? 'Open savings account' : isDailyOnly ? 'Open daily deposit account' : 'Open deposit account';
-    const activeLabel = isSavingsOnly ? 'Active savings accounts' : isDailyOnly ? 'Active DD accounts' : 'Active deposit accounts';
-    const balanceLabel = isSavingsOnly ? 'Total savings balance' : isDailyOnly ? 'Total daily deposit balance' : 'Total deposit balance';
+    const activeLabel = isSavingsOnly ? 'Active savings accounts (सक्रिय खाती)' : isDailyOnly ? 'Active DD accounts (सक्रिय खाती)' : 'Active accounts';
+    const balanceLabel = isSavingsOnly ? 'Total savings balance (एकूण ठेव शिल्लक)' : isDailyOnly ? 'Total daily deposit balance (एकूण ठेव शिल्लक)' : 'Total deposit balance';
+    const todayLabel = isSavingsOnly ? 'Savings deposited today (आजची जमा)' : isDailyOnly ? "Today's DD collection (आजची दैनिक जमा)" : "Today's deposits";
 
     return <div className="admin-page">
         <div className="page-heading">
@@ -878,7 +883,12 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
             </div>
             <button className="primary-button" onClick={() => setModal('account')}><Plus size={16} /> {openButtonLabel}</button>
         </div>
-        <SummaryStrip items={[{ label: activeLabel, value: String(activeCount), tone: 'green' }, { label: balanceLabel, value: formatCurrency(totalBalance) }, { label: 'Entries today', value: String(entriesToday), tone: 'orange' }, { label: 'Needs review', value: String(reviewCount), tone: 'red' }]} />
+        <SummaryStrip items={[
+            { label: activeLabel, value: `${activeCount} accounts`, tone: 'green' },
+            { label: balanceLabel, value: formatCurrency(totalBalance) },
+            { label: todayLabel, value: `${formatCurrency(todayCollected)} (${entriesToday} ${entriesToday === 1 ? 'entry' : 'entries'})`, tone: 'orange' },
+            { label: 'Needs review', value: String(reviewCount), tone: reviewCount > 0 ? 'red' : undefined },
+        ]} />
         <section className="panel table-panel">
             <div className="filter-bar">
                 <div className="filter-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search customer, account, agent or reference..." aria-label="Search deposits" /></div>
