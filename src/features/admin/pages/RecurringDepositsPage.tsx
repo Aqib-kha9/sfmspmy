@@ -61,6 +61,7 @@ export type RDInstallment = {
     dueDate: string;
     paidDate?: string;
     amount: number;
+    paidAmount?: number;
     agent: string;
     reference?: string;
     status: 'Paid' | 'Pending' | 'Overdue';
@@ -629,7 +630,7 @@ export function RecurringDepositsPage() {
     const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
     const [statementOpen, setStatementOpen] = useState(false);
     const [toast, setToast] = useState('');
-    const pageSize = 4;
+    const pageSize = 10;
     const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600); };
     const close = () => { setModal(null); setSelected(undefined); };
 
@@ -664,6 +665,15 @@ export function RecurringDepositsPage() {
     const visibleRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
     const paidCount = rdRows.reduce((total, row) => total + row.installments.filter((item) => item.status === 'Paid').length, 0);
     const pendingItems = rdRows.flatMap((row) => row.installments).filter((item) => item.status !== 'Paid');
+    const totalPaidAmount = rdRows.reduce(
+        (total, row) =>
+            total +
+            row.installments
+                .filter((item) => item.status === 'Paid')
+                .reduce((sum, item) => sum + (item.paidAmount && item.paidAmount > 0 ? item.paidAmount : (item.amount || row.monthlyAmount || 0)), 0),
+        0,
+    );
+    const totalDueAmount = pendingItems.reduce((total, item) => total + (item.amount || 0), 0);
 
     const saveAccount = async (input: RDInput) => {
         try {
@@ -762,9 +772,10 @@ export function RecurringDepositsPage() {
             <SummaryStrip
                 items={[
                     { label: 'Active RD accounts', value: String(rdRows.filter((row) => row.status === 'Active').length), tone: 'green' },
-                    { label: 'Paid installments', value: String(paidCount) },
-                    { label: 'Pending installments', value: String(pendingItems.length), tone: 'orange' },
-                    { label: 'Collection due', value: `₹${pendingItems.reduce((total, item) => total + item.amount, 0).toLocaleString('en-IN')}`, tone: 'red' },
+                    { label: 'Total paid (एकूण जमा)', value: `₹${totalPaidAmount.toLocaleString('en-IN')}`, tone: 'green' },
+                    { label: 'Collection due (एकूण बाकी)', value: `₹${totalDueAmount.toLocaleString('en-IN')}`, tone: 'red' },
+                    { label: 'Paid installments', value: `${paidCount} paid` },
+                    { label: 'Pending installments', value: `${pendingItems.length} pending`, tone: 'orange' },
                 ]}
             />
             <section className="panel table-panel">
@@ -808,7 +819,7 @@ export function RecurringDepositsPage() {
                                 <th>RD account / customer</th>
                                 <th>Installment</th>
                                 <th>Schedule</th>
-                                <th>Paid / pending</th>
+                                <th>Paid amount / installments</th>
                                 <th>Status</th>
                                 <th aria-label="Actions" />
                             </tr>
@@ -824,6 +835,9 @@ export function RecurringDepositsPage() {
                                 visibleRows.map((row) => {
                                     const paid = row.installments.filter((item) => item.status === 'Paid').length;
                                     const pending = row.installments.filter((item) => item.status !== 'Paid').length;
+                                    const rowPaidAmount = row.installments
+                                        .filter((item) => item.status === 'Paid')
+                                        .reduce((sum, item) => sum + (item.paidAmount && item.paidAmount > 0 ? item.paidAmount : (item.amount || row.monthlyAmount || 0)), 0);
                                     return (
                                         <tr key={row.id} onClick={() => openDetail(row)}>
                                             <td>
@@ -844,6 +858,9 @@ export function RecurringDepositsPage() {
                                                 Matures {row.maturityDate}
                                             </td>
                                             <td className="rd-counts">
+                                                <strong style={{ display: 'block', color: '#15803d', fontSize: '0.92rem', fontWeight: 700, marginBottom: '2px' }}>
+                                                    ₹{rowPaidAmount.toLocaleString('en-IN')} paid
+                                                </strong>
                                                 <span className="green-text">{paid} paid</span>
                                                 <span className="orange-text">{pending} pending</span>
                                             </td>

@@ -33,6 +33,7 @@ export type RDInstallment = {
     dueDate: string;
     paidDate?: string;
     amount: number;
+    paidAmount?: number;
     agent: string;
     reference?: string;
     status: 'Paid' | 'Pending' | 'Overdue';
@@ -399,14 +400,18 @@ function monthsBetween(from: string, to: string | null): number | undefined {
 }
 
 function toInstallment(view: InstalmentView): RDInstallment {
+    const rawPaid = toNumber(view.paidAmount);
+    const expected = toNumber(view.expectedAmount);
+    const status = instalmentStatusOf(view.status);
     return {
         id: view.id,
         dueDate: formatDate(view.dueDate),
         paidDate: view.paidOn ? formatDate(view.paidOn) : undefined,
-        amount: toNumber(view.expectedAmount),
+        amount: expected,
+        paidAmount: rawPaid > 0 ? rawPaid : (status === 'Paid' ? expected : 0),
         agent: 'Branch counter',
         reference: view.referenceNumber ?? undefined,
-        status: instalmentStatusOf(view.status),
+        status,
         paymentMethod: paymentMethodLabel(view.paymentMethod),
         externalReference: view.referenceNumber ?? undefined,
     };

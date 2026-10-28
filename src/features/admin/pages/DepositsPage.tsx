@@ -695,7 +695,7 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
     const [toast, setToast] = useState('');
     const { hasRole } = useAuth();
     const canApproveDeposit = hasRole('president', 'managing_director', 'super_admin');
-    const pageSize = 4;
+    const pageSize = 10;
     const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600); };
     const close = () => { setModal(null); setSelected(undefined); };
     useEffect(() => {
@@ -965,7 +965,7 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
                     </tr>}</tbody>
                 </table>
             </div>
-            <Pagination page={page} pageSize={10} totalItems={filteredRows.length} itemName={isSavingsOnly ? 'savings accounts' : isDailyOnly ? 'daily deposits' : 'deposits'} setPage={setPage} />
+            <Pagination page={currentPage} pageSize={pageSize} totalItems={filteredRows.length} itemName={isSavingsOnly ? 'savings accounts' : isDailyOnly ? 'daily deposits' : 'deposits'} setPage={setPage} />
 </section>
         {modal === 'account' && <DepositModal mode="account" accountKind={accountKind} onClose={close} onSave={(input) => saveAccount(input as DepositInput)} />}
         {modal === 'transaction' && selected && <DepositModal mode="transaction" record={selected} onClose={close} onSave={(input) => saveTransaction(input as DepositTransactionInput)} />}
