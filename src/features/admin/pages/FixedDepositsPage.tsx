@@ -14,7 +14,7 @@ import { Req, Opt, FormLegend } from '../../../components/ui/FieldIndicators';
 import { formatCurrency } from '../../../lib/formatters/formatters';
 import { BUSINESS_RULES } from '../../../lib/permissions/permissions';
 import { type Status, StatusPill, SummaryStrip } from '../components/adminShared';
-import { addMonthsYmd } from '../components/adminDateUtils';
+import { addMonthsYmd, calculateMaturityYmd } from '../components/adminDateUtils';
 
 export type FDEvent = {
     id: string;
@@ -81,9 +81,11 @@ export interface OfficialFdScheme {
     englishTitle: string;
     tenureDaysLabel: string;
     tenureMonths: number;
+    tenureDays?: number;
     ratePercent: number;
     badge: string;
     isDamduppat?: boolean;
+    isCustom?: boolean;
     description: string;
 }
 
@@ -94,19 +96,21 @@ export const OFFICIAL_FD_SCHEMES: OfficialFdScheme[] = [
         englishTitle: '30 to 45 Days',
         tenureDaysLabel: '30–45 Days',
         tenureMonths: 1,
+        tenureDays: 15,
         ratePercent: 7.0,
         badge: '७% दर',
-        description: 'अल्प मुदत ठेव योजना (Short term 1 month)',
+        description: 'अल्प मुदत ठेव योजना (Short term 1 month / 30-45 days)',
     },
     {
         id: 'FD_46_180',
-        marathiTitle: '४६ ते १८० दिवस',
-        englishTitle: '46 to 180 Days',
+        marathiTitle: '४६ ते १८० दिवस (१०५ दिवस / ३.५ महिने)',
+        englishTitle: '46 to 180 Days (105 Days / 3.5 Mo)',
         tenureDaysLabel: '46–180 Days',
-        tenureMonths: 6,
+        tenureMonths: 3.5,
+        tenureDays: 0,
         ratePercent: 8.0,
         badge: '८% दर',
-        description: 'मध्यम मुदत ठेव योजना (6 months term)',
+        description: 'मध्यम मुदत ठेव योजना (१०५ दिवस / ३.५ महिने ते १८० दिवस)',
     },
     {
         id: 'FD_181_365',
@@ -139,6 +143,17 @@ export const OFFICIAL_FD_SCHEMES: OfficialFdScheme[] = [
         isDamduppat: true,
         description: '७२ महिने पूर्ण झाल्यावर ठेव रक्कम थेट दुप्पट (Double Principal in 6 years)',
     },
+    {
+        id: 'FD_OTHER',
+        marathiTitle: 'इतर / कस्टमाईज योजना (Other / Custom Scheme)',
+        englishTitle: 'Other / Custom Scheme',
+        tenureDaysLabel: 'Flexible Amount & Term',
+        tenureMonths: 12,
+        ratePercent: 10.0,
+        badge: 'Custom',
+        isCustom: true,
+        description: 'इच्छिक रक्कम (उदा. ₹५ लाख, ₹१० लाख) व कालावधी (दिवस किंवा महिने) टाका',
+    },
 ];
 
 export function getSchemeLabel(card: RateCardView): string {
@@ -166,6 +181,7 @@ export function FDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
     const [customerId, setCustomerId] = useState(record?.customerId ?? '');
     const [principal, setPrincipal] = useState(String(record?.principal ?? ''));
     const [tenureMonths, setTenureMonths] = useState(String(record?.tenureMonths ?? 12));
+    const [tenureDays, setTenureDays] = useState('0');
     const [interestRate, setInterestRate] = useState(String(record?.interestRate ?? 7.5));
     const [openedOn, setOpenedOn] = useState(record?.openedOn ?? new Date().toISOString().slice(0, 10));
     const [maturityDate, setMaturityDate] = useState(record?.maturityDate ?? '');
@@ -282,10 +298,13 @@ export function FDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
     const isDamduppat = Number(tenureMonths) === 72 || (selectedRateCard && Number(selectedRateCard.tenureMonths) === 72) || (Number(interestRate) >= 16.66 && Number(interestRate) <= 16.67);
     // Simple-interest projection mirrors the backend: principal + principal x rate x months / 1200.
     // For Damduppat (दामदुप्पट) 72-month scheme, returns exact double principal (100% interest return).
-    const projectedMaturityAmount = principal && Number.isFinite(principalNumber) && Number.isFinite(Number(interestRate)) && Number(tenureMonths)
+    const totalDays = (Number(tenureMonths) || 0) * 30 + (Number(tenureDays) || 0);
+    const projectedMaturityAmount = principal && Number.isFinite(principalNumber) && Number.isFinite(Number(interestRate)) && (Number(tenureMonths) || Number(tenureDays))
         ? isDamduppat
             ? principalNumber * 2
-            : Math.round(principalNumber + (principalNumber * Number(interestRate) * Number(tenureMonths)) / 1200)
+            : tenureDays && Number(tenureDays) > 0
+                ? Math.round(principalNumber + (principalNumber * Number(interestRate) * totalDays) / (365 * 100))
+                : Math.round(principalNumber + (principalNumber * Number(interestRate) * Number(tenureMonths)) / 1200)
         : 0;
     const rateCardHint = selectedRateCard
         ? `${formatCurrency(Number(selectedRateCard.minAmount))} - ${formatCurrency(Number(selectedRateCard.maxAmount))} band · ${selectedRateCard.tenureMonths}-month term · ${selectedRateCard.interestRate}% p.a. · ${selectedRateCard.earlyClosurePenaltyPercent}% early-closure penalty · minimum holding ${selectedRateCard.minHoldingMonths} months. Maturity date and amount are filled in automatically.`
@@ -308,6 +327,7 @@ export function FDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
         });
     };
     const applyOfficialScheme = (scheme: OfficialFdScheme) => {
+        setTenureDays(String(scheme.tenureDays ?? 0));
         const matchingCard = rateCards.find((c) => Number(c.tenureMonths) === scheme.tenureMonths);
         if (matchingCard) {
             selectRateCard(matchingCard.id);
@@ -322,10 +342,11 @@ export function FDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
         if (mode !== 'account') return;
         if (!openedOn) return;
         const term = Number(tenureMonths);
+        const days = Number(tenureDays) || 0;
         if (!Number.isFinite(term) || term <= 0) return;
-        const derivedMaturity = addMonthsYmd(openedOn, term);
+        const derivedMaturity = calculateMaturityYmd(openedOn, term, days);
         setMaturityDate((current) => (current === derivedMaturity ? current : derivedMaturity));
-    }, [mode, openedOn, tenureMonths]);
+    }, [mode, openedOn, tenureMonths, tenureDays]);
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         if (saving) return;
         setSaving(true);
@@ -334,9 +355,9 @@ export function FDModal({ mode, record, onClose, onSave }: { mode: 'account' | '
             if (mode === 'account') {
                 if (!customerId.trim() || !principal || Number(principal) <= 0 || !openedOn || !maturityDate || !nomineeName.trim() || !nomineeRelation.trim()) { setError('Customer, principal, dates and complete nominee details are required.'); return; }
                 if (Number(principal) < BUSINESS_RULES.FD_MIN_AMOUNT) { setError('Fixed deposit principal must be at least Rs 1,000 as per society rules.'); return; }
-                if (Number(principal) > BUSINESS_RULES.FD_MAX_AMOUNT) { setError('Fixed deposit principal cannot exceed Rs 1,00,000 as per society rules.'); return; }
+                if (Number(principal) > BUSINESS_RULES.FD_MAX_AMOUNT) { setError(`Fixed deposit principal cannot exceed ${formatCurrency(BUSINESS_RULES.FD_MAX_AMOUNT)} as per society rules.`); return; }
                 if (!productCode.trim()) { setError('Select a product / rate card so the booking uses an approved rate.'); return; }
-                if (rateCardMismatch) { setError('No active FD rate card covers this principal and tenure. Adjust the amount or tenure.'); return; }
+                if (rateCardMismatch && productCode !== 'FD_OTHER') { setError('No active FD rate card covers this principal and tenure. Adjust the amount or tenure.'); return; }
                 const lienAmount = Number((lienDetails.match(/\d+/) ?? ['0'])[0]);
                 if (lienAmount > Number(principal) * (BUSINESS_RULES.FD_LIEN_LOAN_PERCENT / 100)) { setError('Loan against FD cannot exceed 85% of the FD amount as per society rules.'); return; }
                 await onSave({ customerId: customerId.trim(), principal: Number(principal), tenureMonths: Number(tenureMonths), interestRate: Number(interestRate), openedOn, maturityDate, nomineeName: nomineeName.trim(), nomineeRelation: nomineeRelation.trim(), payoutInstruction, status, productCode, branch, openingChannel, interestMethod, compoundingFrequency, specialRateReference, taxIdentifier, taxWithholdingInstruction, nomineePhone, nomineeAddress, nomineeIdentityReference, nomineeDocumentReferences, payoutMethod, payoutAccountReference, lienDetails, prematureClosureTerms, renewalInstructions, authorizationReference, documentReferences, consentReference });

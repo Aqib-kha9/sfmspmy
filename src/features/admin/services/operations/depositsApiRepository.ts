@@ -27,11 +27,12 @@ export type Status =
     | 'Overdue'
     | 'Inactive'
     | 'Rejected'
-    | 'Matched';
+    | 'Matched'
+    | 'Reversed';
 
 export type DepositTransaction = {
     id: string;
-    type: 'Deposit entry' | 'Withdrawal';
+    type: 'Deposit entry' | 'Withdrawal' | 'Reversal entry' | 'Adjustment';
     amount: number;
     date: string;
     reference?: string;
@@ -44,6 +45,8 @@ export type DepositTransaction = {
     narration?: string;
     recordedBy?: string;
     balanceAfter?: number;
+    reversalOf?: string;
+    isReversed?: boolean;
 };
 
 export type DepositRecord = {
@@ -257,6 +260,7 @@ type TransactionView = {
     performedByName: string | null;
     reversalOf: string | null;
     adjustmentId: string | null;
+    isReversed?: boolean;
     createdAt: string;
 };
 
@@ -363,9 +367,17 @@ function typeLabelOf(type: TransactionView['transactionType']): string {
     }
 }
 
-export function toDepositTransaction(view: TransactionView): DepositTransaction {
-    const type: DepositTransaction['type'] =
-        view.transactionType === 'withdrawal' || view.direction === 'debit' ? 'Withdrawal' : 'Deposit entry';
+export function toDepositTransaction(view: TransactionView, isReversedOriginal = false): DepositTransaction {
+    const isReversalEntry = view.transactionType === 'reversal' || Boolean(view.reversalOf);
+    const isReversed = isReversalEntry || isReversedOriginal || Boolean(view.isReversed) || Boolean(view.adjustmentId);
+    const type: DepositTransaction['type'] = isReversalEntry
+        ? 'Reversal entry'
+        : view.transactionType === 'adjustment'
+            ? 'Adjustment'
+            : view.transactionType === 'withdrawal' || view.direction === 'debit'
+                ? 'Withdrawal'
+                : 'Deposit entry';
+    const status: Status = isReversed ? 'Reversed' : 'Completed';
     return {
         id: view.id,
         type,
@@ -374,12 +386,14 @@ export function toDepositTransaction(view: TransactionView): DepositTransaction 
         reference: view.referenceNumber ?? undefined,
         agent: view.performedBy ?? undefined,
         agentName: view.performedByName ?? undefined,
-        status: view.reversalOf ? 'Rejected' : 'Completed',
+        status,
         paymentMethod: paymentMethodLabel(view.paymentMethod),
         externalReference: view.referenceNumber ?? undefined,
         narration: view.description ?? undefined,
         recordedBy: view.performedBy ?? undefined,
         balanceAfter: toNumber(view.balanceAfter),
+        reversalOf: view.reversalOf ?? undefined,
+        isReversed,
     };
 }
 
@@ -504,7 +518,11 @@ export class ApiDepositsRepository implements DepositsRepository {
             `/deposits/accounts/${uuid}/transactions`,
             { method: 'GET' },
         );
-        return result.items.map(toDepositTransaction);
+        const reversedOriginalIds = new Set<string>();
+        for (const item of result.items) {
+            if (item.reversalOf) reversedOriginalIds.add(item.reversalOf);
+        }
+        return result.items.map((item) => toDepositTransaction(item, reversedOriginalIds.has(item.id)));
     }
 
     private async productIndex(): Promise<Map<string, ProductView>> {

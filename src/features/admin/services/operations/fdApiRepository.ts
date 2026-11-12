@@ -656,7 +656,7 @@ export class ApiFdRepository implements FdRepository {
                 depositAmount <= toNumber(card.maxAmount),
         );
         if (match) return match.id;
-        const fallback = active.find((card) => card.tenureMonths === tenureMonths);
+        const fallback = active.find((card) => card.tenureMonths === tenureMonths) ?? active[0];
         if (fallback) return fallback.id;
         throw new Error(`No active FD rate card covers ₹${depositAmount} for ${tenureMonths} months`);
     }
@@ -687,7 +687,11 @@ export class ApiFdRepository implements FdRepository {
             maturityAction: 'pending',
         };
         if (input.openedOn) body.startDate = input.openedOn;
-        if (input.interestRate) body.rateIsFixed = true;
+        if (input.maturityDate) body.maturityDate = input.maturityDate;
+        if (input.interestRate) {
+            body.interestRate = input.interestRate.toFixed(4);
+            body.rateIsFixed = true;
+        }
         // The backend enum is strict (cash | bank_transfer | cheque | mobile_money |
         // upi | neft | rtgs); map the operator label so a typed value cannot 400.
         const paymentMethod = normalisePaymentMethod(input.payoutMethod);

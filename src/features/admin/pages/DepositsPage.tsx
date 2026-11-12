@@ -66,7 +66,7 @@ export function DepositModal({ mode, record, accountKind = 'all', onClose, onSav
     const [paymentMethod, setPaymentMethod] = useState('cash');
     const [referenceNumber, setReferenceNumber] = useState('');
     const [description, setDescription] = useState('');
-    const [transactionType, setTransactionType] = useState<DepositTransaction['type']>('Deposit entry');
+    const [transactionType, setTransactionType] = useState<DepositTransactionInput['type']>('Deposit entry');
     const [amount, setAmount] = useState('');
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [reference, setReference] = useState('');
@@ -199,7 +199,7 @@ export function DepositModal({ mode, record, accountKind = 'all', onClose, onSav
                 <label className="full-field"><span>Opening narration <Opt /></span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional note stored on the opening ledger entry" /></label>
                 {selectedProduct ? <p className="form-note full-field">{selectedProduct.name} pays {selectedProduct.interestMethod} interest {selectedProduct.interestFrequency} at {selectedProduct.interestRate}% · minimum balance {formatCurrency(selectedProduct.minBalance)}{selectedProduct.maxBalance !== undefined ? ` · maximum balance ${formatCurrency(selectedProduct.maxBalance)}` : ''}</p> : null}
             </> : <>
-                <label><span>Transaction type <Req /></span><select value={transactionType} onChange={(event) => setTransactionType(event.target.value as DepositTransaction['type'])}><option>Deposit entry</option><option>Withdrawal</option></select></label>
+                <label><span>Transaction type <Req /></span><select value={transactionType} onChange={(event) => setTransactionType(event.target.value as DepositTransactionInput['type'])}><option>Deposit entry</option><option>Withdrawal</option></select></label>
                 <label><span>Amount <Req /></span><input type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="5000" /></label>
                 <label><span>Value date <Opt /></span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
                 <label><span>Payment method <Req /></span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>{depositPaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select></label>
@@ -625,11 +625,11 @@ export function DepositDetail({
                         </div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                        <div className={`deposit-entry-side ${transaction.type === 'Withdrawal' ? 'is-debit' : 'is-credit'}`}>
+                        <div className={`deposit-entry-side ${transaction.type === 'Withdrawal' || transaction.type === 'Reversal entry' ? 'is-debit' : 'is-credit'}`}>
                             <b>{formatCurrency(transaction.amount)}</b>
                             {transaction.balanceAfter !== undefined ? <small>Balance {formatCurrency(transaction.balanceAfter)}</small> : null}
                         </div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                             <button
                                 type="button"
                                 className="secondary-button"
@@ -642,18 +642,37 @@ export function DepositDetail({
                             >
                                 <FileText size={13} /> Receipt
                             </button>
-                            <button
-                                type="button"
-                                className="secondary-button"
-                                style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#b45309' }}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onReverseTx(transaction);
-                                }}
-                                title="Reverse / correct mistaken transaction entry"
-                            >
-                                <RotateCcw size={13} /> Reverse
-                            </button>
+                            {transaction.isReversed || transaction.status === 'Reversed' || transaction.type === 'Reversal entry' ? (
+                                <span
+                                    style={{
+                                        padding: '4px 8px',
+                                        fontSize: '0.72rem',
+                                        borderRadius: '4px',
+                                        background: '#fef3c7',
+                                        color: '#92400e',
+                                        fontWeight: 600,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                    }}
+                                    title="This transaction has already been reversed / corrected"
+                                >
+                                    <CheckCircle2 size={12} /> Reversed
+                                </span>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="secondary-button"
+                                    style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#b45309' }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onReverseTx(transaction);
+                                    }}
+                                    title="Reverse / correct mistaken transaction entry"
+                                >
+                                    <RotateCcw size={13} /> Reverse
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>)}</div> : <div className="customer-empty">No deposit transactions recorded for this account.</div>}

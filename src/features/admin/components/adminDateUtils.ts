@@ -43,6 +43,19 @@ export function addDaysYmd(value: string, days: number): string {
     return toYmd(base);
 }
 
+/** Calculates exact maturity date supporting both months and days (or fractional months e.g. 3.5 = 3m 15d). */
+export function calculateMaturityYmd(value: string, months: number, days: number = 0): string {
+    if (!value) return '';
+    const wholeMonths = Math.floor(months);
+    const fractionalPart = months - wholeMonths;
+    const additionalDays = Math.round(fractionalPart * 30) + days;
+    let result = addMonthsYmd(value, wholeMonths);
+    if (additionalDays > 0) {
+        result = addDaysYmd(result, additionalDays);
+    }
+    return result;
+}
+
 /** Whole months between two `YYYY-MM-DD` dates (backend term parity). */
 export function monthsBetweenYmd(from: string, to: string): number {
     const start = parseYmd(from);
