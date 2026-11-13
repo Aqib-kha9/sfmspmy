@@ -640,7 +640,7 @@ export function CollectionDetail({ record, onClose, onToast, onReview, onAllocat
 
 export function ScopedCollectionsPage() {
     const { hasRole } = useAuth();
-    const canRecordEntry = hasRole('managing_director', 'president', 'vice_president', 'manager');
+    const canRecordEntry = hasRole('managing_director', 'president', 'vice_president', 'manager', 'cashier', 'clerk', 'super_admin');
     const support = useActionSupport(true);
     const [collectionRows, setCollectionRows] = useState<CollectionRecord[]>([]);
     const [totalAmount, setTotalAmount] = useState<string>('0');

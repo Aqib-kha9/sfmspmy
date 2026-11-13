@@ -683,13 +683,11 @@ export function DepositDetail({
                 <button className="secondary-button" style={{ color: '#dc2626' }} onClick={onDelete}><Trash2 size={15} /> Close / Delete account</button>
                 {record.status === 'Pending' && (canApprove
                     ? <button className="primary-button" onClick={onApprove} disabled={approving}>{approving ? <Loader2 size={15} className="spin" /> : <CheckCircle2 size={15} />} Approve account</button>
-                    : <button className="primary-button" disabled title="Only the President, Managing Director or Super Admin can approve an account opening"><LockKeyhole size={15} /> Awaiting approval</button>)}
-                {record.status === 'Pending'
-                    ? <button className="secondary-button" disabled title="Approve this account before recording transactions."><Plus size={15} /> Record transaction</button>
-                    : <button className="primary-button" onClick={onTransaction}><Plus size={15} /> Record transaction</button>}
+                    : null)}
+                <button className="primary-button" onClick={onTransaction}><Plus size={15} /> Record transaction</button>
             </div>
             {record.status === 'Pending' ? <div style={{ padding: '0 24px 20px' }}>
-                <p className="form-note">Maker-checker (spec §9.1): this account stays pending until approved. {canApprove ? 'Approve it to activate the account — transactions are allowed only after activation.' : 'Only the President, Managing Director or Super Admin can approve the opening.'}</p>
+                <p className="form-note">Account awaiting activation or first counter deposit. Recording a deposit will activate this account immediately.</p>
             </div> : null}
         </section>
     </div>;
@@ -713,7 +711,7 @@ export function DepositsPage({ accountKind = 'all' }: { accountKind?: 'savings' 
     const [page, setPage] = useState(1);
     const [toast, setToast] = useState('');
     const { hasRole } = useAuth();
-    const canApproveDeposit = hasRole('president', 'managing_director', 'super_admin');
+    const canApproveDeposit = hasRole('president', 'managing_director', 'super_admin', 'manager');
     const pageSize = 10;
     const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600); };
     const close = () => { setModal(null); setSelected(undefined); };
