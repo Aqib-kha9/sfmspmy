@@ -483,8 +483,20 @@ function toEvent(item: HistoryEventView): FDEvent {
     };
 }
 
-/** Simple interest projection: deposit × rate/100 × tenure/12 (spec §11.1). */
-function maturityAmountOf(principal: number, rate: number, tenureMonths: number): number {
+/** Simple interest projection: deposit × rate/100 × tenure/12 (spec §11.1), supporting Damduppat 2x and custom day terms. */
+function maturityAmountOf(principal: number, rate: number, tenureMonths: number, startDate?: string, maturityDate?: string): number {
+    if (tenureMonths === 72 && (rate >= 16.66 && rate <= 16.67)) {
+        return principal * 2;
+    }
+    if (startDate && maturityDate) {
+        const start = new Date(startDate);
+        const end = new Date(maturityDate);
+        const diffMs = end.getTime() - start.getTime();
+        const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
+        if (days > 0 && Math.abs(days - tenureMonths * 30.4375) > 2) {
+            return Math.round(principal + (principal * rate * days) / 36500);
+        }
+    }
     return Math.round(principal + (principal * rate * tenureMonths) / 1200);
 }
 
@@ -520,7 +532,7 @@ function toRecord(view: FdAccountView, events: FDEvent[], customer?: Customer): 
         interestRate,
         openedOn: view.startDate ?? view.createdAt,
         maturityDate: view.maturityDate,
-        maturityAmount: maturityAmountOf(principal, interestRate, view.tenureMonths),
+        maturityAmount: maturityAmountOf(principal, interestRate, view.tenureMonths, view.startDate, view.maturityDate),
         nomineeName: nomineeName || 'Not captured',
         nomineeRelation: nomineeRelation || 'Not captured',
         payoutInstruction: payoutInstructionOf(view.maturityAction, view.payoutMode),
