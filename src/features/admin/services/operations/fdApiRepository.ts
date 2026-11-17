@@ -666,7 +666,9 @@ export class ApiFdRepository implements FdRepository {
         // resolving by amount + tenure when the caller did not pass a catalogue.
         const selected = isUuid(input.productCode) ? rateCards?.find((card) => card.id === input.productCode) : undefined;
         if (selected) this.cards.set(selected.id, cloneRateCard(selected));
-        const rateCardId = selected ? selected.id : await this.resolveRateCardId(input.principal, input.tenureMonths);
+        const rateCardId = selected
+            ? selected.id
+            : (rateCards?.find((card) => card.isActive)?.id ?? await this.resolveRateCardId(input.principal, input.tenureMonths));
         const payoutMode: FdPayoutMode = input.payoutInstruction === 'Payout at maturity' ? 'payout' : 'reinvest';
         const payoutFrequency: FdPayoutFrequency =
             input.compoundingFrequency === 'Monthly'
