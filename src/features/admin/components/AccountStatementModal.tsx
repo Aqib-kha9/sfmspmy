@@ -525,7 +525,7 @@ export function AccountStatementModal({
                                         SAVITRIBAI MAHILA NAGARI SAHAKARI PATSANSTHA MARYADIT, YAVATMAL
                                     </h2>
                                     <div className="statement-bank-reg-info">
-                                        नोंदणी क्र. (Reg. No.): BOM/RPR/419/1990 · प्रधान कार्यालय: मुख्य रस्ता, यवतमाळ - ४४५००१
+                                        नोंदणी क्र. (Reg. No.): Yavatmal/RSR/CR/2026/0659 · प्रधान कार्यालय: मुख्य रस्ता, यवतमाळ - ४४५००१
                                     </div>
                                     <div className="statement-bank-contact-info">
                                         फोन: 07232-245678 · ईमेल: savitribaipatsanstha@gmail.com · शाखा: {account.branch || 'मुख्य शाखा, यवतमाळ (Main Branch)'}

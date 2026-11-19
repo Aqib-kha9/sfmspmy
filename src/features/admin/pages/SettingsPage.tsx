@@ -42,11 +42,36 @@ export type SettingsState = {
 };
 
 export const emptySettings: SettingsState = {
-    organizationName: '', registrationNumber: '', primaryPhone: '', alternatePhone: '', timezone: 'Asia/Kolkata', currency: 'INR', fiscalYear: '', branchCode: '', branchName: '', address: '', approvalPolicy: '', collectionLimit: '', cashHoldingLimit: '', notificationChannels: '', retentionExceptionReference: '', auditOwner: '',
-    defaultCollectionMode: 'Mixed', gracePeriodDays: '', requireGeoTag: false, allowOfflineCollection: false,
-    receiptPrefix: '', nextReceiptNumber: '', receiptFooter: '',
-    smsReceipts: false, emailStatements: false, overdueAlerts: false, notificationEmail: '',
-    auditRetention: '', transactionRetention: '', autoArchive: false
+    organizationName: 'Savitribai Fule Mahila Nagari Sahakari Patsanstha Maryadit Yavatmal',
+    registrationNumber: 'Yavatmal/RSR/CR/2026/0659',
+    primaryPhone: '7776961661',
+    alternatePhone: '',
+    timezone: 'Asia/Kolkata',
+    currency: 'INR',
+    fiscalYear: '',
+    branchCode: 'YTM-MAIN',
+    branchName: 'Main Branch, Yavatmal',
+    address: 'Rajgruha Apartment, Devangana Society, Waghapur Lohara Bypass, Yavatmal - 445001',
+    approvalPolicy: '',
+    collectionLimit: '',
+    cashHoldingLimit: '',
+    notificationChannels: '',
+    retentionExceptionReference: '',
+    auditOwner: '',
+    defaultCollectionMode: 'Mixed',
+    gracePeriodDays: '',
+    requireGeoTag: false,
+    allowOfflineCollection: false,
+    receiptPrefix: '',
+    nextReceiptNumber: '',
+    receiptFooter: '',
+    smsReceipts: false,
+    emailStatements: false,
+    overdueAlerts: false,
+    notificationEmail: 'savitribaifulepatsanstha@gmail.com',
+    auditRetention: '',
+    transactionRetention: '',
+    autoArchive: false
 };
 
 export const settingsSections: Array<{ id: SettingsSection; label: string; description: string }> = [

@@ -38,7 +38,7 @@ export function TransactionReceiptModal({
             '================================================================',
             'सावित्रीबाई महिला नागरी सहकारी पतसंस्था मर्यादित',
             'SAVITRIBAI MAHILA NAGARI SAHAKARI PATSANSTHA MARYADIT',
-            'Reg No: BOM/RPR/419/1990 · Branch: ' + (receipt.branch ?? 'Head Office'),
+            'Reg. No, Yavatmal/RSR/CR/2026/0659 · Branch: ' + (receipt.branch ?? 'Head Office'),
             '----------------------------------------------------------------',
             'OFFICIAL TRANSACTION RECEIPT / अधिकृत पावती',
             '----------------------------------------------------------------',
@@ -91,7 +91,7 @@ export function TransactionReceiptModal({
                     </div>
                 </div>
                 <div className="receipt-org-meta">
-                    नोंदणी क्र.: BOM/RPR/419/1990 · शाखा: {receipt.branch ?? 'मुख्य शाखा, यवतमाळ (Head Office)'}
+                    नोंदणी क्र. (Reg. No.): Yavatmal/RSR/CR/2026/0659 · शाखा: {receipt.branch ?? 'मुख्य शाखा, यवतमाळ (Head Office)'}
                 </div>
                 <div className="receipt-badge-title">
                     अधिकृत पावती · OFFICIAL TRANSACTION RECEIPT
